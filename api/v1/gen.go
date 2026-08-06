@@ -36,8 +36,17 @@
 //  1. Write api/v1/<resource>.proto — plural resource nouns per Phase 4.4,
 //     with an `option (google.api.http)` on every rpc so the REST route is part
 //     of the contract rather than a separate routing table.
+//
+//     Note that path parameters are camelCased on the way out: a proto field
+//     repo_name declared as {repo_name} in the http option is published as
+//     /api/v1/probes/{repoName} in both the gateway and the OpenAPI document.
+//     That is protoc-gen-openapiv2 following proto3 JSON naming, and it is the
+//     name clients actually see — verified against a generated bundle.
+//
 //  2. Append its filename to the generate directive below.
+//
 //  3. Run `make proto`.
+//
 //  4. Register the server in internal/backend/register.go.
 //
 // Requires protoc plus protoc-gen-go, protoc-gen-go-grpc,

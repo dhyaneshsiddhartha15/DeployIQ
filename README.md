@@ -126,7 +126,7 @@ rather than code — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | 9 Security                | `pkg/errors`, `pkg/middleware`, secret handling           | enforced    |
 | 10 Testing                | `testdata/fixtures/`, `make test-fixtures`                | wired       |
 | 11 Deployment             | `.github/workflows/release.yml`, `build/Dockerfile`       | ready       |
-| 12 Operations             | admin endpoints, JSON logs, `docs/incidents/`             | ready       |
+| 12 Operations             | admin endpoints, JSON logs, `docs/incidents/`, Dependabot | ready       |
 | 13 Future roadmap         | `docs/ARCHITECTURE.md`, `ponytail:`-style debt notes      | recorded    |
 
 ## Documentation
@@ -137,4 +137,9 @@ rather than code — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## License
 
-Copyright 2026, Coredge.io Inc. All rights reserved.
+[Apache License 2.0](LICENSE). Copyright 2026 Coredge.io Inc.
+
+Phase 0.2.5 defines this as a free, open-source tool, and Phase 0.11 assumes
+distribution through developer-community channels — both require a license that
+lets people actually use and redistribute it. Apache-2.0 over MIT for the
+explicit patent grant, which matters when the copyright holder is a company.

@@ -1,0 +1,57 @@
+# Automated dependency updates (Phase 12.3).
+#
+# Weekly rather than daily: this is a solo-maintained project (Phase 0.12), and
+# a daily cadence produces more pull requests than one person can review, which
+# ends with the updates being ignored entirely.
+#
+# Security updates ignore this schedule and are raised immediately by GitHub —
+# that is the behaviour worth having, and it is on by default.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR for the grpc/protobuf/gateway set. They are released in step and
+      # a partial upgrade is the combination most likely to fail to compile.
+      grpc:
+        patterns:
+          - "google.golang.org/grpc*"
+          - "google.golang.org/protobuf*"
+          - "google.golang.org/genproto*"
+          - "github.com/grpc-ecosystem/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Held deliberately: v1.16+ declares go 1.25, which would drag the
+      # module's language version up for a dependency that is only ever
+      # compiled by yaml.v3's own tests. See the note in go.mod.
+      - dependency-name: github.com/rogpeppe/go-internal
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /build
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build"

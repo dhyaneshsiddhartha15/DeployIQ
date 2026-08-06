@@ -229,6 +229,17 @@ RBAC, audit logs and compliance frameworks are absent per Phase 9.3.
 code they test, because Phase 10.2 makes this the release gate rather than a
 nice-to-have. `pkg/config` and `pkg/errors` already carry unit tests.
 
+The target guards its own two silent-success modes, both of which would report
+green while verifying nothing:
+
+- **No fixtures** (the situation today, until the detector lands). It prints a
+  banner saying the gate is not enforced and exits 0. An empty gate is
+  acceptable; an empty gate that looks indistinguishable from a passing one is
+  not.
+- **Fixtures present, no test running them.** `go test -run TestFixtures` exits
+  0 with "no tests to run", so the exit code alone cannot be trusted. The
+  output is grepped and the target fails.
+
 Coverage follows Phase 10.3: high on `detector`, `dockerfile` and `rules`;
 unmeasured on glue.
 
@@ -252,6 +263,12 @@ binary — turning a dependency blip into an outage of our own, against Phase
 12.2's explicit "wait it out, no custom failover".
 
 `docs/incidents/` exists for the short post-incident notes Phase 12.2 asks for.
+
+Phase 12.3 (maintenance) is `.github/dependabot.yml`: weekly rather than daily,
+because a solo maintainer (Phase 0.12) reviewing a daily stream of dependency
+PRs stops reviewing them at all. gRPC, protobuf and the gateway are grouped into
+one PR — they release in step, and a partial upgrade of that set is the
+combination most likely to fail to compile.
 
 ### Phase 13 — Future Roadmap
 

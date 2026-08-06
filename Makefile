@@ -34,9 +34,9 @@ lint:
 	golangci-lint run ./...
 
 ## test: unit tests
-## No -race here: the detector needs cgo, and Windows is a supported
-## development platform where a C toolchain is often absent. CI runs test-race
-## on Linux, so the coverage is not lost.
+# No -race here: the detector needs cgo, and Windows is a supported
+# development platform where a C toolchain is often absent. CI runs test-race
+# on Linux, so the coverage is not lost.
 test:
 	go test ./... -count=1
 
@@ -45,10 +45,37 @@ test-race:
 	CGO_ENABLED=1 go test ./... -race -count=1
 
 ## test-fixtures: the Phase 10.2 gate — every fixture repo must produce a
-## Dockerfile that actually builds. Wired here so CI has one command to call;
-## the fixture suite itself lands with the rule engine.
+#
+# Guards two silent-success modes, both worse than a red build because both
+# report green while verifying nothing:
+#
+#   1. No fixtures at all. Legitimate today — the detector does not exist yet
+#      — but it must be said out loud, not inferred from a green tick.
+#   2. Fixtures present but no test running them. `go test -run TestFixtures`
+#      exits 0 with "no tests to run", so the exit code alone cannot be
+#      trusted; the output is grepped.
+#
+# One shell for the whole recipe (note the trailing `; \` after `fi`): make
+# runs each recipe *line* in its own shell, so a bare `exit 0` on the first
+# line would end that subshell and let the rest of the target run anyway.
 test-fixtures:
-	go test ./... -run TestFixtures -count=1 -tags=fixtures
+	@if [ -z "$$(find testdata/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then \
+		echo "=============================================================="; \
+		echo "GATE NOT ENFORCED: testdata/fixtures/ contains no fixtures."; \
+		echo "The Phase 10.2 release gate is not testing anything yet."; \
+		echo "This is expected until Phase 1 of the build plan lands the"; \
+		echo "detector. It is NOT a passing run of the gate."; \
+		echo "=============================================================="; \
+		exit 0; \
+	fi; \
+	out=$$(go test ./... -run TestFixtures -count=1 -tags=fixtures 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if echo "$$out" | grep -q "no tests to run"; then \
+		echo "FAIL: fixtures exist but no TestFixtures test ran."; \
+		exit 1; \
+	fi; \
+	exit $$status
 
 ## build: both binaries into ./bin
 build: build-cli build-api
@@ -98,5 +125,7 @@ clean:
 	rm -rf bin dist
 
 ## help: list available targets
+# Matches only "## <target>: description" so a multi-line explanatory comment
+# elsewhere in this file cannot masquerade as a target in the listing.
 help:
-	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## //'
+	@grep -E '^## [a-z][a-z0-9-]*:' $(MAKEFILE_LIST) | sed 's/^## //'
