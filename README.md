@@ -137,7 +137,7 @@ rather than code — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## License
 
-[Apache License 2.0](LICENSE). Copyright 2026 Coredge.io Inc.
+[Apache License 2.0](LICENSE).
 
 Phase 0.2.5 defines this as a free, open-source tool, and Phase 0.11 assumes
 distribution through developer-community channels — both require a license that
