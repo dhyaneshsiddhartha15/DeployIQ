@@ -1,0 +1,53 @@
+# Local development stack: the API server plus a MongoDB instance.
+#
+# Development only. Production runs a single container on a small managed host
+# with MongoDB Atlas behind it (Phase 2.3, Phase 8.3) — there is no compose file
+# in the deployment path, and no Kubernetes anywhere (Phase 3.2).
+#
+#   make compose-up     start
+#   make compose-down   stop and delete the volume
+#
+# Secrets here are throwaway local values. Real ones live in the hosting
+# platform's secret manager (Phase 8.4).
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      # Loopback only — this is a dev database, not something to expose on a
+      # shared network.
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        # Wait for a database that actually answers, not just a started
+        # container — otherwise the API fails its first connect and restarts.
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DEPLOYIQ_MONGO_URI: "mongodb://mongo:27017"
+      DEPLOYIQ_MONGO_DATABASE: "deployiq"
+      DEPLOYIQ_LOG_LEVEL: "debug"
+      DEPLOYIQ_LOG_FORMAT: "text"
+      # Local placeholders. Config validation requires all three to be set,
+      # so the server refuses to start with a half-configured OAuth app.
+      DEPLOYIQ_GITHUB_CLIENT_ID: "local-dev"
+      DEPLOYIQ_GITHUB_CLIENT_SECRET: "local-dev-secret"
+      DEPLOYIQ_AUTH_SESSION_SIGNING_KEY: "local-dev-signing-key"
+
+volumes:
+  mongo-data:

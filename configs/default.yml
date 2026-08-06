@@ -1,0 +1,67 @@
+# Default configuration for the DeployIQ Optimizer API server (doiq-api).
+#
+# This file is baked into the container image at /opt/config.yml. Every value
+# here is also the compiled-in default in pkg/config, so a missing file is not
+# an error — the file exists to make the defaults visible and overridable.
+#
+# Precedence, last writer wins:
+#   1. compiled-in defaults (pkg/config.Default)
+#   2. this file
+#   3. DEPLOYIQ_-prefixed environment variables
+#
+# SECRETS ARE NOT IN THIS FILE AND HAVE NO KEY HERE (Phase 8.4). They come from
+# the environment only, so committing one is impossible rather than merely
+# discouraged:
+#
+#   DEPLOYIQ_MONGO_URI                  MongoDB Atlas connection string
+#   DEPLOYIQ_GITHUB_CLIENT_SECRET       GitHub OAuth app client secret
+#   DEPLOYIQ_AUTH_SESSION_SIGNING_KEY   signs CLI session tokens
+#
+# In production these live in the hosting platform's secret manager (Fly.io
+# secrets, Render environment groups). Locally, use build/docker-compose.yml or
+# an untracked .env — never this file.
+#
+# The CLI (doiq) reads none of this. Phase 0.7 requires zero configuration for
+# the default happy path.
+
+server:
+  # Internal gRPC listener. Loopback only: the gateway dials it from inside
+  # the same process and nothing external should reach it.
+  grpcAddr: "127.0.0.1:8090"
+
+  # Public REST/JSON listener (Phase 5.2). TLS terminates at the hosting
+  # platform (Phase 8.6), so this is plain HTTP inside the container.
+  httpAddr: ":8080"
+
+  # Operational endpoints: health, version, runtime log level. Loopback only.
+  adminAddr: "127.0.0.1:8081"
+
+  shutdownTimeout: 15s
+  readHeaderTimeout: 5s
+
+mongo:
+  database: "deployiq"
+  connectTimeout: 10s
+
+github:
+  # Public identifier — not a secret. The matching secret is env-only.
+  clientId: ""
+  # Must match the OAuth app registration exactly (Phase 4.5).
+  callbackUrl: "/api/v1/auth/github/callback"
+
+auth:
+  # Phase 5.3 calls for a short-lived token issued to the CLI.
+  sessionTtl: 24h
+
+log:
+  level: "info"
+  # Phase 8.5: structured JSON, shipped to the platform's log viewer.
+  format: "json"
+  addSource: false
+
+# Phase 9.2 ships per-IP rate limiting with the Phase 4 launch rather than
+# deferring it, so this defaults on.
+rateLimit:
+  enabled: true
+  requestsPerMinute: 120
+  burst: 30

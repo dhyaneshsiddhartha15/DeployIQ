@@ -1,0 +1,22 @@
+# Normalize line endings. Phase 1.2 makes Windows a supported development
+# platform, and core.autocrlf is commonly on there — without this, a CRLF
+# working copy leaks into files that are consumed by Linux tooling.
+#
+# Everything text is stored LF in the repository. The files below additionally
+# force LF in the working copy, because CRLF actually breaks them:
+#   - Dockerfile / shell: a CRLF line ending becomes part of the command
+#   - Makefile: recipes fail with a trailing \r
+* text=auto
+
+*.go        text eol=lf
+*.proto     text eol=lf
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf
+
+# Generated protobuf output — collapse it in diffs and exclude it from
+# language statistics. Still reviewed when it changes, just not by eye.
+*.pb.go     linguist-generated=true
+*.pb.gw.go  linguist-generated=true

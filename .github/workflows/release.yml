@@ -1,0 +1,82 @@
+# Phase 8.1, workflow 2 of 2: triggered by a v* tag.
+#
+# Cross-compiles the CLI for every platform promised in Phase 1.2, attaches the
+# binaries to a GitHub Release with checksums (Phase 9.1: released binaries are
+# checksummed and the build provenance is public and auditable), and publishes
+# the API server image.
+#
+# The CLI has no staging environment — the fixture suite in test.yml is the
+# safety net before a tag is cut (Phase 11.1). A bad release is superseded by a
+# new tag; old releases stay downloadable (Phase 11.3).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  # Lets the runner mint an OIDC token, so the build is attestable without a
+  # long-lived signing secret.
+  id-token: write
+
+jobs:
+  cli:
+    name: cross-compile and publish the CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the changelog can be generated from PR titles
+          # (Phase 11.2).
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A tag that fails the gate must not produce a release. Re-run here
+      # rather than trusting that the tagged commit passed on its branch.
+      - name: test
+        run: make test
+
+      - name: cross-compile
+        run: make cross VERSION=${GITHUB_REF_NAME}
+
+      - name: checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  image:
+    name: publish the API server image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}

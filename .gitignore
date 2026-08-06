@@ -1,0 +1,39 @@
+# editor / swap files
+*.swo
+*.swp
+.vscode
+.idea
+__debug_bin
+
+# mac
+.DS_Store
+
+# build output
+/bin/
+/dist/
+doiq
+doiq-api
+doiq.exe
+doiq-api.exe
+
+# test / coverage artifacts
+*.out
+*.test
+coverage.*
+
+# generated diff files
+*.diff
+
+# local configuration and secrets — never commit (Phase 8.4)
+.env
+.env.local
+configs/local.yml
+configs/*.local.yml
+
+# generated OpenAPI bundle is committed; its intermediate is not
+api/swagger/OpenAPI/apidocs.swagger-unmodified.json
+
+# frontend (Phase 6) build artifacts
+web/node_modules/
+web/dist/
+web/build/

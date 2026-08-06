@@ -1,0 +1,20 @@
+// Copyright 2026, Coredge.io Inc.
+// All Rights reserved.
+
+syntax = "proto3";
+
+package deployiq.v1;
+
+option go_package = "github.com/coredgeio/deployiq-optimizer/api/v1";
+
+// Empty is the request/response type for calls that carry no payload.
+message Empty {
+}
+
+// Order is the sort direction for list calls. The dashboard's primary query
+// pattern is "most recent first" (Phase 7.2), so DESC is the common case even
+// though ASC takes the zero value by proto3 convention.
+enum Order {
+  ASC = 0;
+  DESC = 1;
+}

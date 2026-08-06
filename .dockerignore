@@ -1,0 +1,13 @@
+# Keep the build context small and keep local secrets out of the image.
+.git
+.github
+.golangci.yml
+bin/
+dist/
+docs/
+web/
+testdata/
+*.md
+.env
+.env*
+configs/*.local.yml

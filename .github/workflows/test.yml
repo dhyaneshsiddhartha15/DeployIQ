@@ -1,0 +1,74 @@
+# Phase 8.1, workflow 1 of 2: runs on every push and pull request.
+#
+# The fixture job is the gate Phase 10.2 calls "the single most important test":
+# does the generated Dockerfile actually build, for every supported stack, every
+# time? Nothing ships if it fails.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: vet, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Single source of truth for the toolchain version.
+          go-version-file: go.mod
+          cache: true
+
+      - name: verify formatting
+        run: |
+          unformatted=$(gofmt -l . | grep -v '\.pb\.go$' | grep -v '\.pb\.gw\.go$' || true)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: vet
+        run: make vet
+
+      - name: test
+        run: make test-race
+
+      - name: build
+        run: make build
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64
+
+  fixtures:
+    name: generated Dockerfiles build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Needed because the fixture suite runs a real `docker build` on every
+      # Dockerfile the tool generates — a static assertion on the output text
+      # would not catch the failure mode that matters (Phase 0.10).
+      - uses: docker/setup-buildx-action@v3
+
+      - name: run fixture suite
+        run: make test-fixtures

@@ -1,0 +1,27 @@
+# Lint configuration. Kept deliberately small: the default linter set plus the
+# few that catch the mistakes this codebase actually cares about. Generated
+# protobuf/gateway code is excluded — it is machine output, not reviewed source.
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - bodyclose
+
+issues:
+  exclude-dirs:
+    - third_party
+  exclude-files:
+    - ".*\\.pb\\.go$"
+    - ".*\\.pb\\.gw\\.go$"
+  exclude-rules:
+    # Placeholder packages carry doc.go only until their owning phase lands.
+    - path: doc\.go
+      linters: [revive]
