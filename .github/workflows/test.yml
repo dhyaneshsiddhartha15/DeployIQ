@@ -18,9 +18,9 @@ jobs:
     name: vet, lint, test, build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Single source of truth for the toolchain version.
           go-version-file: go.mod
@@ -46,11 +46,11 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v1.64
 
@@ -58,9 +58,9 @@ jobs:
     name: generated Dockerfiles build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -68,7 +68,7 @@ jobs:
       # Needed because the fixture suite runs a real `docker build` on every
       # Dockerfile the tool generates — a static assertion on the output text
       # would not catch the failure mode that matters (Phase 0.10).
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: run fixture suite
         run: make test-fixtures
