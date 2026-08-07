@@ -5,16 +5,16 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/coredgeio/deployiq-optimizer/pkg/constants"
-	"github.com/coredgeio/deployiq-optimizer/pkg/logger"
-	"github.com/coredgeio/deployiq-optimizer/pkg/version"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/logger"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version"
 )
 
 // adminMux builds the operational endpoints.
 //
 // Bound to 127.0.0.1 by config default and never routed through the public
 // listener: changing the log level of a running process is an operator action,
-// not an API. The reference orbiter-storage-plugin makes the same split for the
+// not an API. The reference project makes the same split for the
 // same reason.
 //
 //	GET  /internal/healthz    liveness — process is up and serving

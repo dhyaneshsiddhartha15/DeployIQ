@@ -3,7 +3,7 @@
 // running (Phase 2.1: the CLI must stay fully useful with zero backend,
 // forever).
 //
-// Three listeners, mirroring the split the reference orbiter-storage-plugin
+// Three listeners, mirroring the split the reference project
 // uses:
 //
 //	gRPC   127.0.0.1:8090  internal only; the gateway dials it over loopback
@@ -31,11 +31,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/grpclog"
 
-	"github.com/coredgeio/deployiq-optimizer/api/swagger"
-	"github.com/coredgeio/deployiq-optimizer/pkg/config"
-	"github.com/coredgeio/deployiq-optimizer/pkg/constants"
-	"github.com/coredgeio/deployiq-optimizer/pkg/middleware"
-	"github.com/coredgeio/deployiq-optimizer/pkg/version"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/api/swagger"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/config"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/middleware"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version"
 )
 
 // Server owns every long-lived resource the API process holds. Constructed by

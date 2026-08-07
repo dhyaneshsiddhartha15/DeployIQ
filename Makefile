@@ -1,5 +1,5 @@
 VERSION ?= dev
-REPO    ?= coredgeio
+REPO    ?= dhyaneshsiddhartha15
 IMG      = $(REPO)/deployiq-api:$(VERSION)
 
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -8,9 +8,9 @@ DATE    := $(shell git log -1 --format=%cI 2>/dev/null || echo unknown)
 # Injected into pkg/version at link time so both binaries can report what
 # they are without a generated file in the tree.
 LDFLAGS := -s -w \
-	-X github.com/coredgeio/deployiq-optimizer/pkg/version.Version=$(VERSION) \
-	-X github.com/coredgeio/deployiq-optimizer/pkg/version.Commit=$(COMMIT) \
-	-X github.com/coredgeio/deployiq-optimizer/pkg/version.BuildDate=$(DATE)
+	-X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.Version=$(VERSION) \
+	-X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.Commit=$(COMMIT) \
+	-X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.BuildDate=$(DATE)
 
 .PHONY: all tidy fmt vet lint test test-race test-fixtures build build-cli build-api \
         cross proto docker-build docker-push compose-up compose-down clean help

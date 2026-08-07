@@ -142,4 +142,5 @@ rather than code — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 Phase 0.2.5 defines this as a free, open-source tool, and Phase 0.11 assumes
 distribution through developer-community channels — both require a license that
 lets people actually use and redistribute it. Apache-2.0 over MIT for the
-explicit patent grant, which matters when the copyright holder is a company.
+explicit patent grant, which matters for a tool that generates build files
+other projects then ship.

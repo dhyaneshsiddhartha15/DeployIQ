@@ -12,7 +12,7 @@ import (
 // This is the single seam for wiring: New calls it once, and nothing else in
 // the package knows which services exist. Adding one is a two-line change here
 // plus its twin in registerGateways below — the same pattern the reference
-// orbiter-storage-plugin uses, kept out of main so cmd/ stays a thin entrypoint.
+// project uses, kept out of main so cmd/ stays a thin entrypoint.
 //
 // Empty by design. Phase 4.5 defines the first four routes; the task that adds
 // them owns the handler, service and repository behind each one. A stub service

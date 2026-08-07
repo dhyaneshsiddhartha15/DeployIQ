@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	apperrors "github.com/coredgeio/deployiq-optimizer/pkg/errors"
+	apperrors "github.com/dhyaneshsiddhartha15/DeployIQ/pkg/errors"
 )
 
 // UnaryRecovery converts a panic in a handler into an Internal error.

@@ -29,8 +29,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/coredgeio/deployiq-optimizer/pkg/constants"
-	"github.com/coredgeio/deployiq-optimizer/pkg/logger"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/logger"
 )
 
 // EnvPrefix namespaces every environment variable this package reads.

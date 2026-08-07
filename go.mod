@@ -1,4 +1,4 @@
-module github.com/coredgeio/deployiq-optimizer
+module github.com/dhyaneshsiddhartha15/DeployIQ
 
 go 1.24.0
 

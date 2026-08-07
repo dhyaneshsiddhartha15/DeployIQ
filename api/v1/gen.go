@@ -11,7 +11,7 @@
 //
 //   - one definition instead of three (route table, request structs, docs),
 //   - an OpenAPI document that cannot drift from the handlers, and
-//   - the same generation pipeline the reference orbiter-storage-plugin uses,
+//   - the same generation pipeline the reference project uses,
 //     so the toolchain and conventions carry over unchanged.
 //
 // gRPC is therefore an internal transport — the gateway dials it over loopback

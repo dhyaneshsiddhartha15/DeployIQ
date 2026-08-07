@@ -31,9 +31,9 @@ ARG BUILD_DATE=unknown
 # below. -trimpath and -s -w drop absolute paths and the symbol table.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags "-s -w \
-      -X github.com/coredgeio/deployiq-optimizer/pkg/version.Version=${VERSION} \
-      -X github.com/coredgeio/deployiq-optimizer/pkg/version.Commit=${COMMIT} \
-      -X github.com/coredgeio/deployiq-optimizer/pkg/version.BuildDate=${BUILD_DATE}" \
+      -X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.Version=${VERSION} \
+      -X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.Commit=${COMMIT} \
+      -X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.BuildDate=${BUILD_DATE}" \
     -o /workspace/doiq-api ./cmd/doiq-api
 
 # --- runtime stage ----------------------------------------------------------

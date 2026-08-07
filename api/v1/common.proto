@@ -1,11 +1,11 @@
-// Copyright 2026, Coredge.io Inc.
-// All Rights reserved.
+// Copyright 2026 Dhyanesh Siddhartha
+// Licensed under the Apache License, Version 2.0.
 
 syntax = "proto3";
 
 package deployiq.v1;
 
-option go_package = "github.com/coredgeio/deployiq-optimizer/api/v1";
+option go_package = "github.com/dhyaneshsiddhartha15/DeployIQ/api/v1";
 
 // Empty is the request/response type for calls that carry no payload.
 message Empty {

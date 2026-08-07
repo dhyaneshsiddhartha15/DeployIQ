@@ -56,7 +56,7 @@ becomes ranked-and-composed rules.
 `model` types appear in the API contract, `errors` kinds map to status codes a
 client sees, `version` is reported over the wire. The rest of `pkg/` (`config`,
 `logger`, `middleware`, `constants`) sits there because both binaries use it and
-neither owns it. The split matches the reference `orbiter-storage-plugin`, which
+neither owns it. The split matches the reference project, which
 uses `pkg/` for shared infrastructure and `internal/` for private machinery.
 
 **Why `cmd/` is thin.** `cmd/doiq-api/main.go` is 60 lines: parse a flag, load
@@ -304,7 +304,7 @@ The general rule: a placeholder is worth creating when it fixes a boundary
 
 ## 5. Departures from the reference project
 
-`orbiter-storage-plugin` is the engineering-standards reference: proto layout,
+The reference project is the engineering-standards baseline: proto layout,
 generation directives, config shape, interceptor patterns, three-listener split,
 graceful shutdown, `pkg/`-versus-`internal/` division. Four things are
 intentionally different, all driven by the design document.
