@@ -12,7 +12,7 @@
 # Build from the repository root:  docker build -f build/Dockerfile .
 
 # --- build stage ------------------------------------------------------------
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 
 WORKDIR /workspace
 
