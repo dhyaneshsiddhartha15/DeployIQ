@@ -76,6 +76,15 @@ func (goGenerator) Generate(ctx *Context) (*Result, error) {
 		notes = append(notes, "go.mod names no Go version; building with Go "+DefaultGoVersion+".")
 	}
 
+	// An existing multi-stage build whose runtime is already a lean OS or
+	// distroless image keeps that runtime stage verbatim: it is where pinned
+	// packages, users and config files live, and rewriting it is all risk
+	// and no saving. Only the build stage is improved.
+	setup := collectBuildSetup(c)
+	if keepsRuntime(c) {
+		return goKeepRuntime(c, g, setup, name, pkg, goVersion, existingBuild, notes)
+	}
+
 	// --- how it starts ----------------------------------------------------------
 	start, err := goStart(c, name)
 	if err != nil {
@@ -150,42 +159,9 @@ func (goGenerator) Generate(ctx *Context) (*Result, error) {
 	}
 
 	// --- build stage ----------------------------------------------------------------
-	builderOS := "alpine"
-	builder := "golang:" + goVersion + "-alpine"
-	buildPkgs := c.buildPackages()
-	if g.UsesCgo || c.packageManager == "apt" {
-		builderOS, builder = "debian", "golang:"+goVersion+"-bookworm"
-	}
-
 	f := &dockerfile.File{Header: header(constants.StackGo, c.existing)}
-	build := f.AddStage(builder, "build", "--- build stage: toolchain, module cache and sources never reach the runtime ---")
-	build.Add("WORKDIR", "/src")
-	if len(buildPkgs) > 0 {
-		build.Note("Build-time OS packages from the existing Dockerfile.", "RUN", osInstall(builderOS, buildPkgs))
-	}
-	if !g.HasVendor {
-		mods := "go.mod"
-		if g.HasGoSum {
-			mods = "go.mod go.sum"
-		}
-		build.Note("Module files first: the download layer is reused until dependencies change.", "COPY", mods+" ./")
-		if g.Requires > 0 {
-			build.Add("RUN", "go mod download")
-		}
-	}
-	build.Note("", "COPY", ". .")
-
-	cgo := "0"
-	if g.UsesCgo {
-		cgo = "1"
-	}
-	ldflags := mergeLdflags(existingBuild)
-	tags := goBuildTags(existingBuild)
-	buildCmd := "CGO_ENABLED=" + cgo + " go build -trimpath " + tags + "-ldflags=\"" + ldflags + "\" -o /out/" + name + " " + pkg
-	if strings.Contains(existingBuild, "$") {
-		notes = append(notes, "The existing `go build` uses build arguments; its -ldflags/-tags were not carried. Compare with: "+existingBuild)
-	}
-	build.Note("", "RUN", buildCmd)
+	notes = append(notes, goBuildStage(f, c, g, setup, name, pkg, goVersion, existingBuild, c.buildPackages())...)
+	buildPkgs := c.buildPackages()
 
 	// --- runtime stage ------------------------------------------------------------------
 	rt := f.AddStage(runtimeImage, "", "--- runtime stage ---")

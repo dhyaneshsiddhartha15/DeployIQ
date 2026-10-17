@@ -84,6 +84,15 @@ func (s *StageSpec) Raw(comment string, in Instruction) *StageSpec {
 	return s.Note(comment, in.Cmd, args)
 }
 
+// Keep appends an instruction carried over unchanged, with no comment or blank
+// line: used when a whole stage is replayed as written.
+func (s *StageSpec) Keep(in Instruction) *StageSpec {
+	n := len(s.lines)
+	s.Raw("", in)
+	s.lines[n].gap = false
+	return s
+}
+
 // Has reports whether the stage already contains an instruction cmd.
 func (s *StageSpec) Has(cmd string) bool {
 	for _, l := range s.lines {

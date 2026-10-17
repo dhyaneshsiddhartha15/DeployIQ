@@ -21,6 +21,7 @@ import (
 type carried struct {
 	existing   bool
 	multiStage bool
+	df         *dockerfile.Dockerfile
 
 	// runtime is the existing final image; zero when there is none.
 	runtime dockerfile.Image
@@ -124,6 +125,7 @@ func carry(ctx *Context, defaultWorkdir string) (*carried, error) {
 		return c, nil
 	}
 	c.existing = true
+	c.df = df
 	c.multiStage = df.MultiStage()
 	c.runtime = df.RuntimeImage()
 	if c.runtime.Family() == dockerfile.FamilyUnknown {

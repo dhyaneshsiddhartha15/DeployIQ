@@ -296,7 +296,7 @@ CMD ./bin/svc --port 8080
 `,
 	})
 	contains(t, res,
-		"FROM golang:1.22-alpine AS build", // newer of go.mod and the image
+		"FROM golang:1.22 AS build", // the existing builder, newer than go.mod asks for
 		`-tags=netgo -ldflags="-s -w -X main.version=1.2.3" -o /out/svc ./cmd/svc`,
 		"COPY --from=build /out/svc /go/src/app/bin/svc",
 		`CMD ["./bin/svc", "--port", "8080"]`,
@@ -337,7 +337,7 @@ ENTRYPOINT ["./entrypoint.sh"]
 `,
 	})
 	contains(t, res,
-		"FROM golang:1.22-bookworm AS build",
+		"FROM golang:1.22 AS build", // the existing builder is reused
 		"FROM debian:bookworm-slim",
 		"apt-get install -y --no-install-recommends ffmpeg ca-certificates tzdata bash",
 		"COPY --from=build /out/m /usr/local/bin/m",
@@ -407,7 +407,7 @@ ENTRYPOINT ["/app"]
 	if len(res.AlreadyPresent) < 5 {
 		t.Errorf("present: %v", res.AlreadyPresent)
 	}
-	contains(t, res, "COPY --from=build /out/m /app", `ENTRYPOINT ["/app"]`)
+	contains(t, res, "COPY --from=build /out/app /app", `ENTRYPOINT ["/app"]`)
 }
 
 // --- Python ------------------------------------------------------------------------
@@ -581,4 +581,104 @@ func TestHelpers(t *testing.T) {
 	if !versionLess("1.21", "1.22") || versionLess("1.22", "1.22") || !versionLess("", "1.0") {
 		t.Error("versionLess")
 	}
+}
+
+// --- Go: existing lean runtime is kept ---------------------------------------------
+
+const leanRuntimeDockerfile = `FROM golang:1.24.2 AS builder
+ARG GIT_TOKEN
+WORKDIR /workspace
+COPY ./ .
+RUN git config --global url."https://${GIT_TOKEN}:x-oauth-basic@github.com/acme".insteadOf "https://github.com/acme"
+RUN go env -w GOPRIVATE=github.com/acme/*
+RUN go mod download
+RUN go generate ./...
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o /workspace/storage-plugin main.go
+
+FROM debian:bullseye-20250428-slim
+RUN apt-get update && apt-get install -y --no-install-recommends sshpass=1.09-1+b1 bash=5.1-2+deb11u1 && rm -rf /var/lib/apt/lists/*
+WORKDIR /
+COPY --from=builder /workspace/storage-plugin .
+COPY --from=builder /workspace/assets /opt/assets
+COPY default.yml /opt/config.yml
+RUN useradd -r storage
+USER storage
+ENTRYPOINT ["/storage-plugin"]
+`
+
+func TestGoKeepsLeanRuntimeStage(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"go.mod":           "module github.com/acme/storage\n\ngo 1.24\n\nrequire github.com/acme/private v1.0.0\n",
+		"go.sum":           "",
+		"main.go":          "package main\nfunc main(){}\n",
+		"default.yml":      "",
+		"build/Dockerfile": leanRuntimeDockerfile,
+	})
+	contains(t, res,
+		// Build stage: same pinned builder, private access before download.
+		"FROM golang:1.24.2 AS build\nARG GIT_TOKEN\n",
+		"RUN git config --global url.",
+		"RUN go env -w GOPRIVATE=github.com/acme/*\n\n# Module files first",
+		"COPY . .\nRUN go generate ./...",
+		"-o /out/storage-plugin .",
+		// Runtime stage: replayed verbatim, same release and pins.
+		"FROM debian:bullseye-20250428-slim\nRUN apt-get update && apt-get install -y --no-install-recommends sshpass=1.09-1+b1",
+		"WORKDIR /\nCOPY --from=build /out/storage-plugin .\nCOPY --from=build /src/assets /opt/assets\nCOPY default.yml /opt/config.yml",
+		"USER storage\nENTRYPOINT [\"/storage-plugin\"]",
+	)
+	lacks(t, res, "bookworm", "distroless", "GOARCH")
+	// Git credentials never reach the runtime stage.
+	rt := string(res.Dockerfile)[strings.Index(string(res.Dockerfile), "FROM debian"):]
+	if strings.Contains(rt, "git config") || strings.Contains(rt, "GIT_TOKEN") {
+		t.Fatalf("module access leaked into the runtime:\n%s", rt)
+	}
+	for _, r := range []string{RuleStaticBinary, RuleLayerCaching} {
+		if !hasRule(res, r) {
+			t.Errorf("missing %s: %v", r, res.RulesApplied)
+		}
+	}
+	for _, r := range []string{RuleMultiStage, RuleSlimBase, RuleNonRootUser} {
+		if hasRule(res, r) {
+			t.Errorf("%s claimed as new", r)
+		}
+	}
+	if !hasNote(res, "kept exactly as written") || !hasNote(res, "GIT_TOKEN") {
+		t.Errorf("notes: %v", res.Notes)
+	}
+	e := analyzer.Compare(res.Before, res.After)
+	if e.SavedPercent > 20 {
+		t.Errorf("a kept runtime cannot save %v%%", e.SavedPercent)
+	}
+}
+
+func TestGoKeepRuntimeRefusesWhenBinaryNotFound(t *testing.T) {
+	_, err := generate(t, map[string]string{
+		"go.mod":  "module m\n\ngo 1.24\n",
+		"main.go": "package main\nfunc main(){}\n",
+		"Dockerfile": "FROM golang:1.24 AS b\nRUN go build -o /out/app .\nFROM alpine:3.20\n" +
+			"COPY --from=b /etc/passwd /etc/passwd\nENTRYPOINT [\"/app\"]\n",
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("want ErrUnsupported, got %v", err)
+	}
+}
+
+func TestGoPrivateSetupMovesToBuildStageFromSingleStage(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"go.mod":  "module m\n\ngo 1.24\n\nrequire github.com/acme/x v1.0.0\n",
+		"go.sum":  "",
+		"main.go": "package main\nfunc main(){}\n",
+		"Dockerfile": "FROM golang:1.24\nARG GITHUB_TOKEN\nWORKDIR /app\nCOPY . .\n" +
+			"RUN git config --global url.\"https://${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\"\n" +
+			"RUN go build -o server .\nCMD [\"./server\"]\n",
+	})
+	out := string(res.Dockerfile)
+	rtStart := strings.LastIndex(out, "\nFROM ")
+	if !strings.Contains(out[:rtStart], "RUN git config") || !strings.Contains(out[:rtStart], "ARG GITHUB_TOKEN") {
+		t.Fatalf("setup not in the build stage:\n%s", out)
+	}
+	if strings.Contains(out[rtStart:], "git config") {
+		t.Fatalf("setup leaked into the runtime:\n%s", out)
+	}
+	contains(t, res, "FROM golang:1.24 AS build", "gcr.io/distroless/static-debian12:nonroot")
 }

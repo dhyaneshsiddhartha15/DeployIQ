@@ -349,3 +349,32 @@ func TestSplitShellWords(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestParseFindsConventionalLocations(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "build"), 0o755)
+	os.WriteFile(filepath.Join(dir, "build", "Dockerfile"), []byte("FROM alpine:3.20\n"), 0o644)
+	df, err := Parse(dir)
+	if err != nil || df == nil || df.RelPath != "build/Dockerfile" {
+		t.Fatalf("build/Dockerfile not found: %+v %v", df, err)
+	}
+	// The root wins when both exist.
+	os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM node:20\n"), 0o644)
+	if df, _ := Parse(dir); df.RelPath != "Dockerfile" {
+		t.Fatalf("root not preferred: %s", df.RelPath)
+	}
+}
+
+func TestParseFile(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "ops"), 0o755)
+	os.WriteFile(filepath.Join(dir, "ops", "api.Dockerfile"), []byte("FROM alpine:3.20\nHEREDOC <<EOF\n"), 0o644)
+	if _, err := ParseFile(dir, "ops/api.Dockerfile"); !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "ops/api.Dockerfile") {
+		t.Fatalf("errors must name the file: %v", err)
+	}
+	for _, bad := range []string{"../x/Dockerfile", "/etc/passwd", "missing"} {
+		if _, err := ParseFile(dir, bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}

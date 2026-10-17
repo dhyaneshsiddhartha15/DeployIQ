@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,6 +61,10 @@ type Stage struct {
 type Dockerfile struct {
 	// Path is where it was read from.
 	Path string
+
+	// RelPath is Path relative to the repository root, slash-separated
+	// ("Dockerfile", "build/Dockerfile").
+	RelPath string
 
 	// Stages in file order. Never empty for a successfully parsed file.
 	Stages []Stage
@@ -145,23 +148,50 @@ var knownInstructions = map[string]bool{
 	"STOPSIGNAL": true, "HEALTHCHECK": true, "SHELL": true,
 }
 
-// Parse reads <root>/Dockerfile. A missing Dockerfile is not an error: it
-// returns (nil, nil) and the caller infers one from stack conventions
-// (Phase 1.4).
+// conventionalDirs are where repositories commonly keep their Dockerfile when
+// it is not at the root, built with the root as context
+// (`docker build -f build/Dockerfile .`).
+var conventionalDirs = []string{"build", "docker", "deploy", ".docker"}
+
+// Parse finds and reads the repository's Dockerfile: <root>/Dockerfile, else
+// the first of build/, docker/, deploy/, .docker/ that holds one. A missing
+// Dockerfile is not an error: it returns (nil, nil) and the caller infers one
+// from stack conventions (Phase 1.4).
+//
+// Without the conventional directories a repo with build/Dockerfile would be
+// compared against an imaginary baseline instead of its real image, and the
+// report's "before" would be fiction.
 func Parse(root string) (*Dockerfile, error) {
-	path := filepath.Join(root, constants.DockerfileName)
-	info, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+	candidates := []string{constants.DockerfileName}
+	for _, d := range conventionalDirs {
+		candidates = append(candidates, d+"/"+constants.DockerfileName)
 	}
+	for _, rel := range candidates {
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+			return ParseFile(root, rel)
+		}
+	}
+	return nil, nil
+}
+
+// ParseFile reads the Dockerfile at rel (slash-separated, relative to root).
+// The path must stay inside root: it is user input pointing into an untrusted
+// repository (Phase 9.1).
+func ParseFile(root, rel string) (*Dockerfile, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("dockerfile: %s is outside the repository", rel)
+	}
+	path := filepath.Join(root, clean)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("dockerfile: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("dockerfile: %s is not a regular file", constants.DockerfileName)
+		return nil, fmt.Errorf("dockerfile: %s is not a regular file", rel)
 	}
 	if info.Size() > maxDockerfileBytes {
-		return nil, fmt.Errorf("%w: %s is larger than 1 MiB", ErrUnsupported, constants.DockerfileName)
+		return nil, fmt.Errorf("%w: %s is larger than 1 MiB", ErrUnsupported, rel)
 	}
 	raw, err := os.ReadFile(path) //nolint:gosec // root-joined, checked above
 	if err != nil {
@@ -169,9 +199,10 @@ func Parse(root string) (*Dockerfile, error) {
 	}
 	df, err := ParseBytes(raw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", filepath.ToSlash(clean), err)
 	}
 	df.Path = path
+	df.RelPath = filepath.ToSlash(clean)
 	return df, nil
 }
 
