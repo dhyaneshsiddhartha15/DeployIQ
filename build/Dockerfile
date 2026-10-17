@@ -24,7 +24,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- api build stage ------------------------------------------------------------
-FROM golang:1.24-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /workspace
 
