@@ -26,7 +26,12 @@
 // fields need no migration step. A versioned migration script under scripts/
 // arrives the first time a field must be renamed or restructured, not before.
 //
-// Empty until Phase 4 of the build plan — the module carries no MongoDB
-// dependency yet, deliberately: Phase 0.6 and 8.2 keep the CLI a single static
-// binary with nothing it does not use linked in.
+// Files: mongo.go (the MongoDB store, driver v2), memory.go (an in-process
+// store selected by DEPLOYIQ_MONGO_URI=memory://, for tests and local
+// development). repository_test.go runs one behavioural contract against both,
+// so the store API tests use cannot drift from the real one.
+//
+// The driver is linked into doiq-api only. `make check-cli-deps` fails the
+// build if it ever reaches the CLI (Phase 0.7: a single static binary with
+// nothing it does not use).
 package repository

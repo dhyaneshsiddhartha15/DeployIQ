@@ -1,0 +1,74 @@
+# Backend deployment (Phase 11.2): on merge to main, deploy to staging, verify
+# it, then promote to production. A direct deploy, not blue/green or canary —
+# unwarranted for a single low-traffic instance (Phase 11.2).
+#
+# Production waits on the "production" GitHub environment, so a required
+# reviewer can gate it. Rollback is a redeploy of the previous image
+# (Phase 11.3): `fly deploy -c deploy/fly.toml --image <previous>`.
+#
+# Needs the FLY_API_TOKEN secret. Until the backend has real users (Phase 3
+# gate), this workflow can stay disabled in the repository settings.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "testdata/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: deploy to staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy -c deploy/fly.staging.toml --remote-only \
+            --build-arg VERSION=${GITHUB_SHA::7} --build-arg COMMIT=${GITHUB_SHA}
+      - name: smoke test
+        run: |
+          base=https://staging.api.deployiq.dev
+          for i in $(seq 1 30); do
+            curl -fsS "$base/healthz" && break
+            sleep 5
+          done
+          curl -fsS "$base/healthz" | grep -q '"ok"'
+          # Unauthenticated API calls must be rejected, not served.
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"
+          # The dashboard is served from the same origin.
+          curl -fsS "$base/" | grep -q '<div id="root">'
+
+  production:
+    name: deploy to production
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy -c deploy/fly.toml --remote-only \
+            --build-arg VERSION=${GITHUB_SHA::7} --build-arg COMMIT=${GITHUB_SHA}
+      - name: verify
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS https://api.deployiq.dev/healthz && exit 0
+            sleep 5
+          done
+          echo "::error::production health check failed; roll back with fly deploy --image <previous>"
+          exit 1

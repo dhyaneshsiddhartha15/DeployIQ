@@ -23,15 +23,24 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
+	"path"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/grpclog"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/dhyaneshsiddhartha15/DeployIQ/api/swagger"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/github"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/handler"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/repository"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/service"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/config"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/middleware"
@@ -39,47 +48,173 @@ import (
 )
 
 // Server owns every long-lived resource the API process holds. Constructed by
-// New, driven by Run, and torn down in one place by shutdown.
+// New, started by Start (or Run), and torn down in one place by Shutdown.
 type Server struct {
 	cfg *config.Config
+
+	store service.Store
+	auth  *service.Auth
+	svcs  services
 
 	grpc  *grpc.Server
 	http  *http.Server
 	admin *http.Server
 
+	grpcLis, httpLis, adminLis net.Listener
+
 	// gwConn is the gateway's loopback connection to the gRPC server.
 	gwConn *grpc.ClientConn
+
+	limiter *rateLimiter
+	monitor *alertMonitor
+	stopBG  context.CancelFunc
 }
 
-// New builds the server from cfg. It binds nothing and dials nothing — that is
-// Run's job — so a construction failure cannot leave a listener open.
-func New(cfg *config.Config) (*Server, error) {
+type services struct {
+	optimizations *service.Optimizations
+	users         *service.Users
+}
+
+// Option customises New, for tests and alternative wiring.
+type Option func(*options)
+
+type options struct {
+	store  service.Store
+	github service.GitHubOAuth
+}
+
+// WithStore uses s instead of connecting to the configured database.
+func WithStore(s service.Store) Option { return func(o *options) { o.store = s } }
+
+// WithGitHub uses gh instead of the real GitHub OAuth client.
+func WithGitHub(gh service.GitHubOAuth) Option { return func(o *options) { o.github = gh } }
+
+// New builds the server from cfg. It connects to the store (failing fast on a
+// bad URI, Phase 5.6) but binds no listener — that is Start's job.
+func New(cfg *config.Config, opts ...Option) (*Server, error) {
 	redirectGRPCLog()
 
-	s := &Server{cfg: cfg}
+	o := &options{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	store := o.store
+	if store == nil {
+		var err error
+		store, err = openStore(cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	gh := o.github
+	if gh == nil {
+		gh = github.New(cfg.GitHub.ClientID, cfg.GitHub.ClientSecret, cfg.GitHub.AuthURL, cfg.GitHub.TokenURL, cfg.GitHub.APIURL)
+	}
+
+	s := &Server{
+		cfg:   cfg,
+		store: store,
+		auth:  service.NewAuth(cfg.Auth.SessionSigningKey, cfg.Auth.SessionTTL, store, gh),
+		svcs: services{
+			optimizations: service.NewOptimizations(store),
+			users:         service.NewUsers(store),
+		},
+	}
+	if cfg.RateLimit.Enabled {
+		s.limiter = newRateLimiter(cfg.RateLimit, cfg.Server.TrustProxyHeaders)
+	}
+	if cfg.Alert.Enabled {
+		s.monitor = newAlertMonitor(cfg.Alert)
+	}
 
 	// Interceptor order is outermost-first. Recovery must lead so it also
-	// catches a panic raised inside another interceptor; logging must trail
-	// so its duration measures the handler, not the chain.
+	// catches a panic raised inside another interceptor; logging sits
+	// outside auth so rejected calls are logged too.
 	s.grpc = grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			middleware.UnaryRecovery,
 			middleware.UnaryLogging,
+			authInterceptor(s.auth),
 		),
 		grpc.ChainStreamInterceptor(
 			middleware.StreamRecovery,
 			middleware.StreamLogging,
 		),
 	)
-
-	registerServices(s.grpc)
+	registerServices(s.grpc, s.svcs)
 
 	s.admin = &http.Server{
-		Addr:              cfg.Server.AdminAddr,
 		Handler:           adminMux(),
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 	}
 	return s, nil
+}
+
+// openStore connects to MongoDB, or to the in-memory store for memory://.
+func openStore(cfg *config.Config) (service.Store, error) {
+	if cfg.Mongo.URI == repository.MemoryURI {
+		slog.Warn("using the in-memory store: data is lost on restart; never use this in production")
+		return repository.NewMemory(), nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Mongo.ConnectTimeout)
+	defer cancel()
+	return repository.Connect(ctx, cfg.Mongo.URI, cfg.Mongo.Database, cfg.Mongo.ConnectTimeout)
+}
+
+// Start binds all three listeners and begins serving. It returns once
+// everything is listening; serve errors are reported on the returned channel.
+func (s *Server) Start() (<-chan error, error) {
+	errCh := make(chan error, 3)
+
+	var err error
+	if s.grpcLis, err = net.Listen("tcp", s.cfg.Server.GRPCAddr); err != nil {
+		return nil, fmt.Errorf("backend: listening on %s: %w", s.cfg.Server.GRPCAddr, err)
+	}
+	if s.adminLis, err = net.Listen("tcp", s.cfg.Server.AdminAddr); err != nil {
+		s.grpcLis.Close()
+		return nil, fmt.Errorf("backend: listening on %s: %w", s.cfg.Server.AdminAddr, err)
+	}
+	if s.httpLis, err = net.Listen("tcp", s.cfg.Server.HTTPAddr); err != nil {
+		s.grpcLis.Close()
+		s.adminLis.Close()
+		return nil, fmt.Errorf("backend: listening on %s: %w", s.cfg.Server.HTTPAddr, err)
+	}
+
+	go func() {
+		slog.Info("serving grpc", slog.String("addr", s.grpcLis.Addr().String()))
+		if err := s.grpc.Serve(s.grpcLis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			errCh <- fmt.Errorf("grpc server: %w", err)
+		}
+	}()
+	go func() {
+		slog.Info("serving admin", slog.String("addr", s.adminLis.Addr().String()))
+		if err := s.admin.Serve(s.adminLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("admin server: %w", err)
+		}
+	}()
+
+	if err := s.startGateway(); err != nil {
+		s.Shutdown()
+		return nil, err
+	}
+
+	bg, cancel := context.WithCancel(context.Background())
+	s.stopBG = cancel
+	if s.limiter != nil {
+		go s.limiter.run(bg)
+	}
+	if s.monitor != nil {
+		go s.monitor.run(bg)
+	}
+
+	go func() {
+		slog.Info("serving http", slog.String("addr", s.httpLis.Addr().String()))
+		if err := s.http.Serve(s.httpLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("http server: %w", err)
+		}
+	}()
+	return errCh, nil
 }
 
 // Run starts every listener and blocks until the context is cancelled, SIGINT
@@ -93,53 +228,31 @@ func (s *Server) Run(ctx context.Context) error {
 		slog.String("service", constants.ServiceName),
 		slog.String("version", version.String()),
 	)
-
-	lis, err := net.Listen("tcp", s.cfg.Server.GRPCAddr)
+	errCh, err := s.Start()
 	if err != nil {
-		return fmt.Errorf("backend: listening on %s: %w", s.cfg.Server.GRPCAddr, err)
-	}
-
-	// Buffered for every goroutine below, so a failing listener can report
-	// and exit without blocking on a receiver that may already be gone.
-	errCh := make(chan error, 3)
-
-	go func() {
-		slog.Info("serving grpc", slog.String("addr", s.cfg.Server.GRPCAddr))
-		if err := s.grpc.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			errCh <- fmt.Errorf("grpc server: %w", err)
-		}
-	}()
-
-	go func() {
-		slog.Info("serving admin", slog.String("addr", s.cfg.Server.AdminAddr))
-		if err := s.admin.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("admin server: %w", err)
-		}
-	}()
-
-	if err := s.startGateway(); err != nil {
-		s.shutdown()
 		return err
 	}
-	go func() {
-		slog.Info("serving http", slog.String("addr", s.cfg.Server.HTTPAddr))
-		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("http server: %w", err)
-		}
-	}()
 
 	select {
 	case <-ctx.Done():
 		slog.Info("shutdown signal received")
 	case err := <-errCh:
 		slog.Error("listener failed", slog.String("error", err.Error()))
-		s.shutdown()
+		s.Shutdown()
 		return err
 	}
-
-	s.shutdown()
+	s.Shutdown()
 	return nil
 }
+
+// HTTPAddr is the bound public address (useful when configured as :0).
+func (s *Server) HTTPAddr() string { return s.httpLis.Addr().String() }
+
+// AdminAddr is the bound admin address.
+func (s *Server) AdminAddr() string { return s.adminLis.Addr().String() }
+
+// Auth exposes the auth service, for tests that need to mint sessions.
+func (s *Server) Auth() *service.Auth { return s.auth }
 
 // redirectGRPCLog routes gRPC's and grpc-gateway's own logging into slog.
 //
@@ -153,24 +266,18 @@ func (s *Server) Run(ctx context.Context) error {
 // slog turns every gRPC error into three identical records, which would treble
 // the error rate Phase 12.1 alerts on. Discarding the first two collapses that
 // back to one record at the right level.
-//
-// The cost is that gRPC's own warnings are dropped along with its very chatty
-// info stream (a connectivity state change per event). Acceptable for a
-// single-instance service whose gRPC hop is loopback-only; the upgrade path, if
-// a gRPC warning ever matters, is a small LoggerV2 implementation that maps
-// each severity independently instead of this constructor.
 func redirectGRPCLog() {
 	errorW := slog.NewLogLogger(slog.Default().Handler(), slog.LevelError).Writer()
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, errorW))
 }
 
 // startGateway dials the gRPC server over loopback and builds the public
-// REST/JSON handler in front of it.
+// handler in front of it.
 func (s *Server) startGateway() error {
 	// passthrough:// keeps grpc from attempting DNS resolution on an address
 	// that is already a host:port.
 	conn, err := grpc.NewClient(
-		"passthrough:///"+s.cfg.Server.GRPCAddr,
+		"passthrough:///"+s.grpcLis.Addr().String(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -179,14 +286,30 @@ func (s *Server) startGateway() error {
 	conn.Connect()
 	s.gwConn = conn
 
-	gwmux := gwruntime.NewServeMux()
+	gwmux := gwruntime.NewServeMux(
+		// Strict decoding: an unknown field is a 400, not silently dropped
+		// (Phase 5.4: validated against a strict schema). Zero values are
+		// emitted so the dashboard never has to guess at a missing field.
+		gwruntime.WithMarshalerOption(gwruntime.MIMEWildcard, &gwruntime.JSONPb{
+			MarshalOptions:   protojson.MarshalOptions{EmitUnpopulated: true},
+			UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
+		}),
+		gwruntime.WithErrorHandler(handler.GatewayErrorHandler),
+	)
 	if err := registerGateways(context.Background(), gwmux, conn); err != nil {
 		conn.Close()
 		return err
 	}
 
 	mux := http.NewServeMux()
+	handler.NewAuth(s.auth, s.cfg.Server.PublicURL, s.cfg.GitHub.CallbackURL, s.cfg.Server.DashboardURL).Register(mux)
 	mux.Handle(constants.APIPathPrefix+"/", gwmux)
+
+	// Public liveness for the hosting platform's health check, which
+	// cannot reach the loopback admin listener. Says nothing but "ok".
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	if docs, err := swaggerHandler(); err != nil {
 		// Missing docs must not stop the API from serving. Phase 4.5 is
@@ -196,13 +319,28 @@ func (s *Server) startGateway() error {
 		mux.Handle("/swagger/", http.StripPrefix("/swagger/", docs))
 	}
 
+	if dir := s.cfg.Server.WebDir; dir != "" {
+		mux.Handle("/", spaHandler(dir))
+	}
+
+	var h http.Handler = mux
+	if s.limiter != nil {
+		h = s.limiter.middleware(h)
+	}
+	h = withCORS(s.cfg.Server.CORSOrigins, h)
+	h = withSecurityHeaders(s.cfg.Server.MaxBodyBytes, h)
+	h = withAccessLog(s.monitor, h)
+	h = withRecovery(h)
+
 	s.http = &http.Server{
-		Addr:              s.cfg.Server.HTTPAddr,
-		Handler:           mux,
+		Handler:           h,
 		ReadHeaderTimeout: s.cfg.Server.ReadHeaderTimeout,
 	}
 	return nil
 }
+
+// Handler returns the public HTTP handler; valid after Start.
+func (s *Server) Handler() http.Handler { return s.http.Handler }
 
 // swaggerHandler serves the embedded OpenAPI bundle.
 func swaggerHandler() (http.Handler, error) {
@@ -213,18 +351,45 @@ func swaggerHandler() (http.Handler, error) {
 	return http.FileServer(http.FS(sub)), nil
 }
 
-// shutdown closes everything in one place, bounded by the configured timeout so
+// spaHandler serves the built React dashboard (Phase 2.3: the static build is
+// served from the same host). Paths that are not files fall back to index.html
+// so client-side routes (/dashboard/owner/repo) survive a reload.
+func spaHandler(dir string) http.Handler {
+	files := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// path, not filepath: URL paths are slash-separated on every OS.
+		clean := path.Clean("/" + r.URL.Path)
+		p := filepath.Join(dir, filepath.FromSlash(clean))
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			if strings.HasPrefix(clean, "/assets/") {
+				// Vite fingerprints asset names; they never change.
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			files.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+	})
+}
+
+// Shutdown closes everything in one place, bounded by the configured timeout so
 // a wedged connection cannot hold the process open indefinitely.
-func (s *Server) shutdown() {
+func (s *Server) Shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.Server.ShutdownTimeout)
 	defer cancel()
 
+	if s.stopBG != nil {
+		s.stopBG()
+	}
 	// HTTP first: stop accepting new public requests before removing the
 	// gRPC backend they depend on.
 	if s.http != nil {
 		if err := s.http.Shutdown(ctx); err != nil {
 			slog.Error("http server shutdown", slog.String("error", err.Error()))
 		}
+	} else if s.httpLis != nil {
+		s.httpLis.Close()
 	}
 	if err := s.admin.Shutdown(ctx); err != nil {
 		slog.Error("admin server shutdown", slog.String("error", err.Error()))
@@ -245,6 +410,11 @@ func (s *Server) shutdown() {
 	if s.gwConn != nil {
 		if err := s.gwConn.Close(); err != nil {
 			slog.Error("gateway connection close", slog.String("error", err.Error()))
+		}
+	}
+	if s.store != nil {
+		if err := s.store.Close(ctx); err != nil {
+			slog.Error("store close", slog.String("error", err.Error()))
 		}
 	}
 

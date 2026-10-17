@@ -15,8 +15,16 @@ permissions:
 
 jobs:
   build:
-    name: vet, lint, test, build
+    name: vet, test, build
     runs-on: ubuntu-latest
+    services:
+      # Real MongoDB for the repository contract test (Phase 10.1).
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -36,11 +44,46 @@ jobs:
       - name: vet
         run: make vet
 
+      # The CLI must never link the backend (Phase 2.1): checked, not assumed.
+      - name: cli import boundary
+        run: make check-cli-deps
+
       - name: test
+        env:
+          DEPLOYIQ_TEST_MONGO_URI: mongodb://localhost:27017
         run: make test-race
+
+      - name: coverage of core packages (Phase 10.3)
+        run: make cover
 
       - name: build
         run: make build
+
+  proto:
+    name: generated code is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "28.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: install generators
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.35.1
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+          go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.22.0
+          go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.22.0
+      # The protoc version is stamped into each file's header; a different
+      # protoc patch release is not drift, so those lines are ignored.
+      - name: regenerate and diff
+        run: |
+          make proto
+          git diff --exit-code -I '^//[[:space:]]+(-[[:space:]]+)?protoc[[:space:]]' -- api/ \
+            || { echo "::error::generated code is stale; run make proto"; exit 1; }
 
   lint:
     name: golangci-lint
@@ -53,6 +96,23 @@ jobs:
       - uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64
+
+  web:
+    name: dashboard tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
 
   fixtures:
     name: generated Dockerfiles build
@@ -72,3 +132,15 @@ jobs:
 
       - name: run fixture suite
         run: make test-fixtures
+
+  image:
+    name: api image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile
+          push: false

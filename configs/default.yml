@@ -15,7 +15,11 @@
 #
 #   DEPLOYIQ_MONGO_URI                  MongoDB Atlas connection string
 #   DEPLOYIQ_GITHUB_CLIENT_SECRET       GitHub OAuth app client secret
-#   DEPLOYIQ_AUTH_SESSION_SIGNING_KEY   signs CLI session tokens
+#   DEPLOYIQ_AUTH_SESSION_SIGNING_KEY   signs session tokens (16+ chars)
+#   DEPLOYIQ_ALERT_WEBHOOK_URL          optional: where alerts are posted
+#
+# DEPLOYIQ_MONGO_URI=memory:// selects an in-memory store for local
+# development. Nothing survives a restart; never use it in production.
 #
 # In production these live in the hosting platform's secret manager (Fly.io
 # secrets, Render environment groups). Locally, use build/docker-compose.yml or
@@ -39,6 +43,31 @@ server:
   shutdownTimeout: 15s
   readHeaderTimeout: 5s
 
+  # External origin, used to build the absolute OAuth callback URL. Set it in
+  # every deployed environment (DEPLOYIQ_SERVER_PUBLIC_URL); when empty the
+  # origin is taken from the request, which is only safe locally.
+  publicUrl: ""
+
+  # Where browser logins land after OAuth. Empty = same origin as the API,
+  # which is how the image is built: the dashboard is served from webDir.
+  dashboardUrl: ""
+
+  # Directory with the built dashboard. The container image sets this to
+  # /opt/web via DEPLOYIQ_SERVER_WEB_DIR; empty serves the API only.
+  webDir: ""
+
+  # Behind Fly.io / Render the TCP peer is the proxy. Enable to rate-limit
+  # by Fly-Client-IP / X-Forwarded-For instead. Never enable without a proxy
+  # that overwrites those headers.
+  trustProxyHeaders: false
+
+  # Caps request bodies; an optimization report is a few hundred bytes.
+  maxBodyBytes: 65536
+
+  # Browser origins allowed to call the API cross-origin. Only needed when the
+  # dashboard is hosted somewhere else.
+  corsOrigins: []
+
 mongo:
   database: "deployiq"
   connectTimeout: 10s
@@ -46,8 +75,13 @@ mongo:
 github:
   # Public identifier — not a secret. The matching secret is env-only.
   clientId: ""
-  # Must match the OAuth app registration exactly (Phase 4.5).
+  # Must match the OAuth app registration exactly (Phase 4.5). A path is
+  # resolved against server.publicUrl.
   callbackUrl: "/api/v1/auth/github/callback"
+  # github.com by default; change for GitHub Enterprise Server.
+  authUrl: "https://github.com/login/oauth/authorize"
+  tokenUrl: "https://github.com/login/oauth/access_token"
+  apiUrl: "https://api.github.com"
 
 auth:
   # Phase 5.3 calls for a short-lived token issued to the CLI.
@@ -65,3 +99,15 @@ rateLimit:
   enabled: true
   requestsPerMinute: 120
   burst: 30
+
+# Phase 12.1: alert on a *sustained* 5xx rate. The alert is always logged at
+# error level; it is also posted to DEPLOYIQ_ALERT_WEBHOOK_URL (env only — the
+# URL authorises posting to a channel) when that is set. Slack-compatible
+# {"text": "..."} body.
+alert:
+  enabled: true
+  window: 1m
+  threshold: 0.05     # 5% of requests in a window
+  minRequests: 20     # quieter windows are not judged
+  sustain: 5          # consecutive bad windows before firing
+  cooldown: 30m

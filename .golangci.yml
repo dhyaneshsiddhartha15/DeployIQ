@@ -22,6 +22,11 @@ issues:
     - ".*\\.pb\\.go$"
     - ".*\\.pb\\.gw\\.go$"
   exclude-rules:
-    # Placeholder packages carry doc.go only until their owning phase lands.
+    # doc.go files are package documentation only.
     - path: doc\.go
       linters: [revive]
+    # Test fixtures write temp files and parse forms without checking every
+    # return: a failed setup step shows up as the test's own failure, and
+    # wrapping each write in t.Fatal adds noise without adding a check.
+    - path: _test\.go
+      linters: [errcheck]

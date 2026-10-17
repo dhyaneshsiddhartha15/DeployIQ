@@ -1,0 +1,1 @@
+{ "port": 3000, "path": "/", "expect": "built 1m" }
