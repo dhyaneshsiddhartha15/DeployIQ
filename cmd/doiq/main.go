@@ -67,6 +67,10 @@ type options struct {
 	// diff shows a unified diff against the existing Dockerfile.
 	diff bool
 
+	// dockerfile is the existing Dockerfile's path relative to the repo,
+	// when it is not in one of the places Parse looks.
+	dockerfile string
+
 	// quiet omits the generated Dockerfile from text output.
 	quiet bool
 
@@ -108,6 +112,7 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 	fs.BoolVar(&opts.yes, "yes", false, "confirm -write without prompting (for CI)")
 	fs.StringVar(&opts.format, "format", "text", "output format: text or json")
 	fs.BoolVar(&opts.diff, "diff", false, "show a unified diff against the existing Dockerfile instead of the full file")
+	fs.StringVar(&opts.dockerfile, "dockerfile", "", "existing Dockerfile, relative to the repo (default: ./Dockerfile, then build/, docker/, deploy/)")
 	fs.BoolVar(&opts.quiet, "quiet", false, "omit the generated Dockerfile from the text report")
 	fs.BoolVar(&opts.report, "report", false, "send the result to your DeployIQ dashboard (requires `"+constants.AppName+" login`)")
 	fs.StringVar(&opts.repoName, "repo-name", "", "repository name to report (default: from the git origin remote, else the directory name)")
@@ -262,7 +267,14 @@ func analyse(root string, opts *options, e env) error {
 	}
 	slog.Debug("stack detected", slog.String("stack", det.Stack), slog.Any("others", det.Others))
 
-	existing, err := dockerfile.Parse(root) // FR-2; nil when absent
+	// FR-2; nil when absent. -dockerfile names one explicitly; otherwise
+	// the root and the conventional build/, docker/, deploy/ dirs are tried.
+	var existing *dockerfile.Dockerfile
+	if opts.dockerfile != "" {
+		existing, err = dockerfile.ParseFile(root, opts.dockerfile)
+	} else {
+		existing, err = dockerfile.Parse(root)
+	}
 	if err != nil {
 		return err
 	}
@@ -368,7 +380,11 @@ func describeExisting(df *dockerfile.Dockerfile) string {
 	if n := len(df.Stages); n > 1 {
 		stages = fmt.Sprintf("%d stages", n)
 	}
-	return fmt.Sprintf("%s (%s, runtime base %s)", constants.DockerfileName, stages, df.RuntimeImage().Ref)
+	name := df.RelPath
+	if name == "" {
+		name = constants.DockerfileName
+	}
+	return fmt.Sprintf("%s (%s, runtime base %s)", name, stages, df.RuntimeImage().Ref)
 }
 
 func stackDetail(det *detector.Result) string {

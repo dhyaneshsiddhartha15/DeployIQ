@@ -35,6 +35,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/dockerfile"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
 )
 
@@ -130,11 +131,13 @@ func runFixture(t *testing.T, name string) {
 	if os.Getenv("DOIQ_FIXTURE_COMPARE") == "0" {
 		return
 	}
-	if _, err := os.Stat(filepath.Join(src, constants.DockerfileName)); err != nil {
+	// Wherever the tool found it: the root, or build/ and friends.
+	existing, err := dockerfile.Parse(src)
+	if err != nil || existing == nil {
 		return
 	}
 	origTag := "doiq-fixture-" + name + ":original"
-	docker(t, 15*time.Minute, "build", "-q", "-f", filepath.Join(dir, constants.DockerfileName), "-t", origTag, dir)
+	docker(t, 15*time.Minute, "build", "-q", "-f", filepath.Join(dir, filepath.FromSlash(existing.RelPath)), "-t", origTag, dir)
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", origTag).Run() })
 	original := imageSizeMB(t, origTag)
 	t.Logf("original image:  %.0f MB actual, %.0f MB estimated", original, rep.Estimate.Before.TotalMB)
