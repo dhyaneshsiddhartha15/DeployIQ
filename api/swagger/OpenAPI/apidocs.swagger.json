@@ -1,0 +1,259 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "optimizations.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "OptimizationsService"
+    },
+    {
+      "name": "UsersService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/api/v1/me": {
+      "get": {
+        "operationId": "UsersService_GetMe",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1User"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "UsersService"
+        ]
+      }
+    },
+    "/api/v1/optimizations": {
+      "get": {
+        "summary": "ListOptimizations returns the caller's history, most recent first,\noptionally filtered to one repository (GET /api/v1/optimizations?repo=).",
+        "operationId": "OptimizationsService_ListOptimizations",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListOptimizationsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "repo",
+            "description": "repo filters to one repository name. Empty means all of the caller's.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "description": "limit caps the result count: default 50, maximum 500.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "OptimizationsService"
+        ]
+      },
+      "post": {
+        "summary": "CreateOptimization stores one opt-in report from `doiq -report`.",
+        "operationId": "OptimizationsService_CreateOptimization",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Optimization"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "{\"repoName\": \"company/backend\", \"detectedStack\": \"node\",\n   \"originalEstSizeMB\": 640, \"optimizedEstSizeMB\": 118,\n   \"rulesApplied\": [\"multi-stage-build\", \"alpine-base\", \"prod-only-deps\"]}\n\nThe client never supplies id, owner or timestamp.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateOptimizationRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OptimizationsService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1CreateOptimizationRequest": {
+      "type": "object",
+      "properties": {
+        "repoName": {
+          "type": "string"
+        },
+        "detectedStack": {
+          "type": "string"
+        },
+        "originalEstSizeMB": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "optimizedEstSizeMB": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "rulesApplied": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "{\"repoName\": \"company/backend\", \"detectedStack\": \"node\",\n   \"originalEstSizeMB\": 640, \"optimizedEstSizeMB\": 118,\n   \"rulesApplied\": [\"multi-stage-build\", \"alpine-base\", \"prod-only-deps\"]}\n\nThe client never supplies id, owner or timestamp.",
+      "title": "CreateOptimizationRequest is the Phase 4.5 request body:",
+      "required": [
+        "repoName",
+        "detectedStack",
+        "originalEstSizeMB",
+        "optimizedEstSizeMB"
+      ]
+    },
+    "v1ListOptimizationsResponse": {
+      "type": "object",
+      "properties": {
+        "optimizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Optimization"
+          }
+        }
+      }
+    },
+    "v1Optimization": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "readOnly": true
+        },
+        "repoName": {
+          "type": "string"
+        },
+        "detectedStack": {
+          "type": "string"
+        },
+        "originalEstSizeMB": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "optimizedEstSizeMB": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "rulesApplied": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        },
+        "savingsPercent": {
+          "type": "number",
+          "format": "double",
+          "description": "savings_percent is derived, for the dashboard's headline number.",
+          "readOnly": true
+        }
+      },
+      "description": "Optimization is one recorded run. Size fields are estimates (Phase 1.5) and\nare named so. JSON names keep the exact casing of the Phase 4.5 example body."
+    },
+    "v1User": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "readOnly": true
+        },
+        "githubId": {
+          "type": "string"
+        },
+        "login": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "User is the dashboard account. There is no password field, by design\n(Phase 3.1: GitHub OAuth only, no password liability)."
+    }
+  }
+}

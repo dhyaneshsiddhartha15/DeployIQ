@@ -25,5 +25,6 @@
 // Phase 10.3 puts this package in the 80%+ coverage band — correctness here is
 // the product.
 //
-// Empty until Phase 1 of the build plan (MVP).
+// Files: detector.go (Detect, priority, safe manifest reads), node.go, golang.go,
+// python.go (one probe per stack).
 package detector

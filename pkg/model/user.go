@@ -26,6 +26,11 @@ type User struct {
 	// GitHubID is the numeric GitHub account id, stringified. Unique.
 	GitHubID string `json:"githubId"`
 
+	// Login is the GitHub username, for display. Refreshed on every login:
+	// unlike GitHubID it can change. Added after Phase 7.1 as an optional
+	// field, which Phase 7.5 allows without a migration.
+	Login string `json:"login,omitempty"`
+
 	// Email comes from the GitHub profile. May be empty — a GitHub user can
 	// keep their address private.
 	Email string `json:"email,omitempty"`

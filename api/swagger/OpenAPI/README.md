@@ -6,8 +6,9 @@
 generated from them, so the two cannot drift).
 
 The bundle is committed so a clone builds without protoc, and is embedded into
-the API server binary by `../embed.go`. The server serves it at `/swagger/`.
+the API server binary by `../embed.go`. The server serves it at
+`/swagger/apidocs.swagger.json`.
 
-No file exists yet because no service protos exist yet — the Phase 4.5 API
-surface (`/api/v1/optimizations`, `/api/v1/auth/github/callback`, `/api/v1/me`)
-lands with Phase 4 of the build plan.
+It covers the RPC routes (`/api/v1/optimizations`, `/api/v1/me`). The two OAuth
+routes, `/api/v1/auth/github/login` and `/api/v1/auth/github/callback`, are
+plain HTTP redirects rather than RPCs and are documented in `docs/API.md`.

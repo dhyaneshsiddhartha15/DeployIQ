@@ -26,5 +26,6 @@
 //
 // Phase 10.3 puts this package in the 80%+ coverage band.
 //
-// Empty until Phase 1 of the build plan (MVP).
+// Files: parser.go (Parse), image.go (image references and families),
+// analysis.go (classifying existing RUN steps), generator.go (Generate).
 package dockerfile

@@ -44,6 +44,7 @@ type Config struct {
 	Auth      AuthConfig      `yaml:"auth"`
 	Log       LogConfig       `yaml:"log"`
 	RateLimit RateLimitConfig `yaml:"rateLimit"`
+	Alert     AlertConfig     `yaml:"alert"`
 }
 
 // ServerConfig holds listener addresses.
@@ -69,6 +70,33 @@ type ServerConfig struct {
 
 	// ReadHeaderTimeout guards against slow-header (Slowloris) clients.
 	ReadHeaderTimeout time.Duration `yaml:"readHeaderTimeout"`
+
+	// PublicURL is the externally visible origin, e.g.
+	// https://api.deployiq.dev. Used to build the absolute OAuth callback
+	// URL. When empty the origin is taken from the request — fine for local
+	// development, unsafe behind an untrusted proxy.
+	PublicURL string `yaml:"publicUrl"`
+
+	// DashboardURL is where browser logins land after OAuth (the React
+	// dashboard, Phase 5+). Empty means the same origin as the API, which
+	// is the Phase 2.3 deployment: one host serves both.
+	DashboardURL string `yaml:"dashboardUrl"`
+
+	// WebDir, when set, is a directory holding the built dashboard, served
+	// at / with single-page-app fallback (Phase 8.6: no separate CDN).
+	WebDir string `yaml:"webDir"`
+
+	// TrustProxyHeaders makes the rate limiter key on Fly-Client-IP /
+	// X-Forwarded-For instead of the TCP peer. Only enable behind a proxy
+	// that sets them, or clients can spoof their way past the limit.
+	TrustProxyHeaders bool `yaml:"trustProxyHeaders"`
+
+	// MaxBodyBytes caps request bodies on the public listener.
+	MaxBodyBytes int64 `yaml:"maxBodyBytes"`
+
+	// CORSOrigins lists dashboard origins allowed to call the API from a
+	// browser when it is served from a different host. Empty disables CORS.
+	CORSOrigins []string `yaml:"corsOrigins"`
 }
 
 // MongoConfig holds the Phase 4+ document store settings.
@@ -93,8 +121,40 @@ type GitHubConfig struct {
 	ClientSecret string `yaml:"-"`
 
 	// CallbackURL must match the OAuth app registration exactly. It is the
-	// route from Phase 4.5: /api/v1/auth/github/callback.
+	// route from Phase 4.5: /api/v1/auth/github/callback. A path is resolved
+	// against Server.PublicURL.
 	CallbackURL string `yaml:"callbackUrl"`
+
+	// AuthURL, TokenURL and APIURL default to github.com. They exist so
+	// GitHub Enterprise works and so tests can point at a fake.
+	AuthURL  string `yaml:"authUrl"`
+	TokenURL string `yaml:"tokenUrl"`
+	APIURL   string `yaml:"apiUrl"`
+}
+
+// AlertConfig drives the Phase 12.1 alert: a webhook (Slack-compatible) on a
+// sustained 5xx rate.
+type AlertConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	// Window is one measurement interval.
+	Window time.Duration `yaml:"window"`
+
+	// Threshold is the 5xx fraction (0-1) that makes a window bad.
+	Threshold float64 `yaml:"threshold"`
+
+	// MinRequests ignores windows too quiet to judge.
+	MinRequests int `yaml:"minRequests"`
+
+	// Sustain is how many consecutive bad windows fire the alert.
+	Sustain int `yaml:"sustain"`
+
+	// Cooldown suppresses repeat alerts.
+	Cooldown time.Duration `yaml:"cooldown"`
+
+	// WebhookURL is secret (it authorises posting to a channel):
+	// DEPLOYIQ_ALERT_WEBHOOK_URL only.
+	WebhookURL string `yaml:"-"`
 }
 
 // AuthConfig holds session token settings.
@@ -139,6 +199,7 @@ func Default() Config {
 			AdminAddr:         "127.0.0.1:8081",
 			ShutdownTimeout:   15 * time.Second,
 			ReadHeaderTimeout: 5 * time.Second,
+			MaxBodyBytes:      64 << 10,
 		},
 		Mongo: MongoConfig{
 			Database:       "deployiq",
@@ -146,6 +207,17 @@ func Default() Config {
 		},
 		GitHub: GitHubConfig{
 			CallbackURL: constants.APIPathPrefix + "/auth/github/callback",
+			AuthURL:     "https://github.com/login/oauth/authorize",
+			TokenURL:    "https://github.com/login/oauth/access_token",
+			APIURL:      "https://api.github.com",
+		},
+		Alert: AlertConfig{
+			Enabled:     true,
+			Window:      time.Minute,
+			Threshold:   0.05,
+			MinRequests: 20,
+			Sustain:     5,
+			Cooldown:    30 * time.Minute,
 		},
 		Auth: AuthConfig{
 			SessionTTL: 24 * time.Hour,
@@ -215,6 +287,16 @@ func (c *Config) applyEnv() error {
 	envString(&c.Mongo.Database, "MONGO_DATABASE")
 	envString(&c.GitHub.ClientID, "GITHUB_CLIENT_ID")
 	envString(&c.GitHub.CallbackURL, "GITHUB_CALLBACK_URL")
+	envString(&c.GitHub.AuthURL, "GITHUB_AUTH_URL")
+	envString(&c.GitHub.TokenURL, "GITHUB_TOKEN_URL")
+	envString(&c.GitHub.APIURL, "GITHUB_API_URL")
+	envString(&c.Server.PublicURL, "SERVER_PUBLIC_URL")
+	envString(&c.Server.DashboardURL, "SERVER_DASHBOARD_URL")
+	envString(&c.Server.WebDir, "SERVER_WEB_DIR")
+	if v, ok := lookup("SERVER_CORS_ORIGINS"); ok {
+		c.Server.CORSOrigins = strings.Split(v, ",")
+	}
+	envString(&c.Alert.WebhookURL, "ALERT_WEBHOOK_URL") // secret: env only
 	envString(&c.Log.Level, "LOG_LEVEL")
 	envString(&c.Log.Format, "LOG_FORMAT")
 
@@ -236,6 +318,12 @@ func (c *Config) applyEnv() error {
 		return err
 	}
 	if err := envBool(&c.RateLimit.Enabled, "RATE_LIMIT_ENABLED"); err != nil {
+		return err
+	}
+	if err := envBool(&c.Server.TrustProxyHeaders, "SERVER_TRUST_PROXY_HEADERS"); err != nil {
+		return err
+	}
+	if err := envBool(&c.Alert.Enabled, "ALERT_ENABLED"); err != nil {
 		return err
 	}
 	if err := envInt(&c.RateLimit.RequestsPerMinute, "RATE_LIMIT_REQUESTS_PER_MINUTE"); err != nil {
@@ -279,6 +367,24 @@ func (c *Config) Validate() error {
 	}
 	if c.Server.ShutdownTimeout <= 0 {
 		problems = append(problems, "server.shutdownTimeout must be positive")
+	}
+	if len(c.Auth.SessionSigningKey) > 0 && len(c.Auth.SessionSigningKey) < 16 {
+		problems = append(problems, EnvPrefix+"AUTH_SESSION_SIGNING_KEY must be at least 16 characters")
+	}
+	if c.Server.MaxBodyBytes <= 0 {
+		problems = append(problems, "server.maxBodyBytes must be positive")
+	}
+	for _, u := range []struct{ name, v string }{
+		{"github.authUrl", c.GitHub.AuthURL}, {"github.tokenUrl", c.GitHub.TokenURL}, {"github.apiUrl", c.GitHub.APIURL},
+	} {
+		if !strings.HasPrefix(u.v, "https://") && !strings.HasPrefix(u.v, "http://") {
+			problems = append(problems, u.name+" must be an http(s) URL")
+		}
+	}
+	if c.Alert.Enabled {
+		if c.Alert.Window <= 0 || c.Alert.Sustain <= 0 || c.Alert.Threshold <= 0 || c.Alert.Threshold > 1 {
+			problems = append(problems, "alert: window and sustain must be positive and threshold in (0,1]")
+		}
 	}
 	if c.RateLimit.Enabled {
 		if c.RateLimit.RequestsPerMinute <= 0 {
@@ -334,6 +440,44 @@ func CLIConfigPath() (string, error) {
 		return "", fmt.Errorf("config: locating user config dir: %w", err)
 	}
 	return filepath.Join(dir, constants.AppName, "config.yml"), nil
+}
+
+// LoadCLIConfig reads the CLI config at path. A missing file is the normal
+// state for anyone who never logged in and yields the zero value.
+func LoadCLIConfig(path string) (*CLIConfig, error) {
+	c := &CLIConfig{}
+	b, err := os.ReadFile(path) //nolint:gosec // user's own config path
+	if os.IsNotExist(err) {
+		return c, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if err := yaml.Unmarshal(b, c); err != nil {
+		return nil, fmt.Errorf("config: parsing %s: %w", path, err)
+	}
+	return c, nil
+}
+
+// SaveCLIConfig writes c to path with owner-only permissions: the file holds a
+// session token (Phase 5.3: stored locally, never committed, never shared).
+func SaveCLIConfig(path string, c *CLIConfig) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	b, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("config: %w", err)
+	}
+	return nil
 }
 
 // --- env helpers ----------------------------------------------------------

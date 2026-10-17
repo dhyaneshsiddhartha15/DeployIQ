@@ -1,0 +1,53 @@
+# Production deployment (Phase 8.3): one small service on Fly.io, MongoDB on
+# Atlas. Deliberately the whole of the infrastructure-as-code — no Terraform,
+# no Kubernetes, no Helm (Phase 2.3, Phase 3.2).
+#
+# Secrets are set once, out of band, and never live in this file (Phase 8.4):
+#
+#   fly secrets set -a deployiq-api \
+#     DEPLOYIQ_MONGO_URI='mongodb+srv://...' \
+#     DEPLOYIQ_GITHUB_CLIENT_SECRET='...' \
+#     DEPLOYIQ_AUTH_SESSION_SIGNING_KEY="$(openssl rand -hex 32)" \
+#     DEPLOYIQ_ALERT_WEBHOOK_URL='https://hooks.slack.com/...'
+#
+# Deploy:    fly deploy -c deploy/fly.toml          (CI does this; see deploy.yml)
+# Rollback:  fly releases -a deployiq-api, then
+#            fly deploy -c deploy/fly.toml --image <previous image>   (Phase 11.3)
+
+app = "deployiq-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../build/Dockerfile"
+
+[env]
+  DEPLOYIQ_SERVER_PUBLIC_URL = "https://api.deployiq.dev"
+  DEPLOYIQ_GITHUB_CLIENT_ID = "REPLACE_WITH_OAUTH_APP_CLIENT_ID"
+  DEPLOYIQ_SERVER_TRUST_PROXY_HEADERS = "true"   # Fly sets Fly-Client-IP
+  DEPLOYIQ_LOG_FORMAT = "json"                   # Phase 8.5
+  DEPLOYIQ_LOG_LEVEL = "info"
+
+[http_service]
+  internal_port = 8080
+  force_https = true            # Phase 9.2: HTTPS only, enforced by the platform
+  auto_stop_machines = "off"    # one always-on instance (Phase 2.5)
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  # Liveness only; never checks MongoDB, so an Atlas blip does not restart a
+  # healthy process (Phase 12.2: wait it out).
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"        # Phase 12.4: smallest tier until usage demands more
+  memory = "256mb"

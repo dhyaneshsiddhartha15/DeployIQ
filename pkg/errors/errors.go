@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -208,11 +209,34 @@ func GRPCCode(err error) codes.Code {
 
 // GRPCStatus converts err into a gRPC status error carrying only the public
 // message. Return this from a gRPC handler; log err separately.
+//
+// A field-level validation error also carries a google.rpc.BadRequest detail
+// naming the field, so the REST gateway can return Phase 5.4's field-level
+// 400 without parsing the message.
 func GRPCStatus(err error) error {
 	if err == nil {
 		return nil
 	}
-	return status.Error(GRPCCode(err), Public(err))
+	st := status.New(GRPCCode(err), Public(err))
+	var e *Error
+	if errors.As(err, &e) && e.Kind == KindInvalidArgument && e.Field != "" {
+		if withDetail, derr := st.WithDetails(&errdetails.BadRequest{
+			FieldViolations: []*errdetails.BadRequest_FieldViolation{{Field: e.Field, Description: e.Message}},
+		}); derr == nil {
+			st = withDetail
+		}
+	}
+	return st.Err()
+}
+
+// FieldFromStatus returns the field named by a BadRequest detail on st, or "".
+func FieldFromStatus(st *status.Status) string {
+	for _, d := range st.Details() {
+		if br, ok := d.(*errdetails.BadRequest); ok && len(br.GetFieldViolations()) > 0 {
+			return br.GetFieldViolations()[0].GetField()
+		}
+	}
+	return ""
 }
 
 // --- constructors ---------------------------------------------------------

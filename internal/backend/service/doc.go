@@ -24,5 +24,8 @@
 // id and filters on it. Not a middleware, not a handler check — here, on every
 // query, because this is the layer no transport can bypass.
 //
-// Empty until Phase 4 of the build plan.
+// Files: stores.go (the interfaces), optimizations.go (validation and the
+// per-user history), users.go (/me), auth.go (HMAC session tokens, signed
+// OAuth state bound to a browser nonce, the GitHub login), context.go (the
+// authenticated user id).
 package service

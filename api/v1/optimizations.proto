@@ -1,0 +1,74 @@
+// Licensed under the Apache License, Version 2.0.
+
+syntax = "proto3";
+
+package deployiq.v1;
+
+option go_package = "github.com/dhyaneshsiddhartha15/DeployIQ/api/v1";
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+
+// OptimizationsService records opt-in CLI results and serves them to the
+// dashboard (Phase 4.5, Phase 4.6). Every call is scoped to the authenticated
+// user: a caller only ever sees and writes their own history (Phase 9.2).
+service OptimizationsService {
+  // CreateOptimization stores one opt-in report from `doiq -report`.
+  rpc CreateOptimization(CreateOptimizationRequest) returns (Optimization) {
+    option (google.api.http) = {
+      post: "/api/v1/optimizations"
+      body: "*"
+    };
+  }
+
+  // ListOptimizations returns the caller's history, most recent first,
+  // optionally filtered to one repository (GET /api/v1/optimizations?repo=).
+  rpc ListOptimizations(ListOptimizationsRequest) returns (ListOptimizationsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/optimizations"
+    };
+  }
+}
+
+// Optimization is one recorded run. Size fields are estimates (Phase 1.5) and
+// are named so. JSON names keep the exact casing of the Phase 4.5 example body.
+message Optimization {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string repo_name = 2 [json_name = "repoName"];
+  string detected_stack = 3 [json_name = "detectedStack"];
+  int32 original_est_size_mb = 4 [json_name = "originalEstSizeMB"];
+  int32 optimized_est_size_mb = 5 [json_name = "optimizedEstSizeMB"];
+  repeated string rules_applied = 6 [json_name = "rulesApplied"];
+  google.protobuf.Timestamp created_at = 7 [json_name = "createdAt", (google.api.field_behavior) = OUTPUT_ONLY];
+
+  // savings_percent is derived, for the dashboard's headline number.
+  double savings_percent = 8 [json_name = "savingsPercent", (google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// CreateOptimizationRequest is the Phase 4.5 request body:
+//
+//   {"repoName": "company/backend", "detectedStack": "node",
+//    "originalEstSizeMB": 640, "optimizedEstSizeMB": 118,
+//    "rulesApplied": ["multi-stage-build", "alpine-base", "prod-only-deps"]}
+//
+// The client never supplies id, owner or timestamp.
+message CreateOptimizationRequest {
+  string repo_name = 1 [json_name = "repoName", (google.api.field_behavior) = REQUIRED];
+  string detected_stack = 2 [json_name = "detectedStack", (google.api.field_behavior) = REQUIRED];
+  int32 original_est_size_mb = 3 [json_name = "originalEstSizeMB", (google.api.field_behavior) = REQUIRED];
+  int32 optimized_est_size_mb = 4 [json_name = "optimizedEstSizeMB", (google.api.field_behavior) = REQUIRED];
+  repeated string rules_applied = 5 [json_name = "rulesApplied"];
+}
+
+message ListOptimizationsRequest {
+  // repo filters to one repository name. Empty means all of the caller's.
+  string repo = 1;
+
+  // limit caps the result count: default 50, maximum 500.
+  int32 limit = 2;
+}
+
+message ListOptimizationsResponse {
+  repeated Optimization optimizations = 1;
+}

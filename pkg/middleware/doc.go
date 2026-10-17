@@ -12,24 +12,22 @@
 // inside another interceptor:
 //
 //	grpc.ChainUnaryInterceptor(
-//	    middleware.UnaryRecovery,   // outermost
-//	    middleware.UnaryRateLimit,  // Phase 4
-//	    middleware.UnaryAuth,       // Phase 4
-//	    middleware.UnaryLogging,    // innermost — logs the real handler
+//	    middleware.UnaryRecovery, // outermost
+//	    middleware.UnaryLogging,  // logs rejected calls too
+//	    authInterceptor(auth),    // internal/backend: needs the auth service
 //	)
 //
-// Deliberately absent until the phase that needs them:
+// Three concerns are deliberately handled elsewhere, or not at all:
 //
-//   - UnaryAuth — validates the session token from Phase 5.3 and puts the user
-//     id in the context. Lands with Phase 4, alongside the auth service.
-//     Authorization itself is not an interceptor's job: Phase 9.2 requires the
-//     "only your own data" rule be enforced at the service layer on every
-//     query, not at the gateway.
+//   - Authentication is internal/backend/auth.go, because it depends on the
+//     session service. Authorization is not an interceptor's job at all:
+//     Phase 9.2 requires the "only your own data" rule be enforced in the
+//     service layer on every query.
 //
-//   - UnaryRateLimit — per-IP limiting, which Phase 9.2 ships with the Phase 4
-//     launch rather than deferring. Needs a limiter dependency
-//     (golang.org/x/time/rate) plus per-IP eviction, so it is added with Phase
-//     4 rather than as an unused stub now.
+//   - Per-IP rate limiting (Phase 9.2, shipped at launch) is HTTP middleware
+//     in internal/backend/httpmw.go, so it also covers the OAuth redirect
+//     routes that never reach gRPC. A hand-rolled token bucket with idle
+//     eviction; no limiter dependency.
 //
 //   - Tracing — the reference storage-plugin threads a trace/span id through
 //     every call because it sits in a multi-service platform. This is one

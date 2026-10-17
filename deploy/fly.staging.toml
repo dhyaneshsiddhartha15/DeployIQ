@@ -1,0 +1,38 @@
+# Staging (Phase 11.1): a separate small deployment used to verify a release
+# before it is promoted. Same image, its own app, its own Atlas database and
+# its own GitHub OAuth app (callback URLs must match exactly).
+#
+#   fly secrets set -a deployiq-api-staging DEPLOYIQ_MONGO_URI=... \
+#     DEPLOYIQ_GITHUB_CLIENT_SECRET=... DEPLOYIQ_AUTH_SESSION_SIGNING_KEY=...
+
+app = "deployiq-api-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../build/Dockerfile"
+
+[env]
+  DEPLOYIQ_SERVER_PUBLIC_URL = "https://staging.api.deployiq.dev"
+  DEPLOYIQ_GITHUB_CLIENT_ID = "REPLACE_WITH_STAGING_OAUTH_APP_CLIENT_ID"
+  DEPLOYIQ_MONGO_DATABASE = "deployiq_staging"
+  DEPLOYIQ_SERVER_TRUST_PROXY_HEADERS = "true"
+  DEPLOYIQ_LOG_FORMAT = "json"
+  DEPLOYIQ_LOG_LEVEL = "debug"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"   # staging may sleep; it costs nothing idle
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

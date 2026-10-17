@@ -13,6 +13,7 @@ LDFLAGS := -s -w \
 	-X github.com/dhyaneshsiddhartha15/DeployIQ/pkg/version.BuildDate=$(DATE)
 
 .PHONY: all tidy fmt vet lint test test-race test-fixtures build build-cli build-api \
+        check-cli-deps cover web-install web-test web-build dev-api \
         cross proto docker-build docker-push compose-up compose-down clean help
 
 all: fmt vet test build
@@ -33,7 +34,7 @@ vet:
 lint:
 	golangci-lint run ./...
 
-## test: unit tests
+## test: unit tests (set DEPLOYIQ_TEST_MONGO_URI to include the MongoDB contract test)
 # No -race here: the detector needs cgo, and Windows is a supported
 # development platform where a C toolchain is often absent. CI runs test-race
 # on Linux, so the coverage is not lost.
@@ -44,13 +45,16 @@ test:
 test-race:
 	CGO_ENABLED=1 go test ./... -race -count=1
 
-## test-fixtures: the Phase 10.2 gate — every fixture repo must produce a
+## test-fixtures: the Phase 10.2 gate — every fixture's generated Dockerfile must build and serve (needs Docker)
+#
+# cmd/doiq/fixtures_test.go runs the CLI on each fixture, `docker build`s the
+# output, starts the container and checks it answers, and compares the image
+# with the fixture's own Dockerfile.
 #
 # Guards two silent-success modes, both worse than a red build because both
 # report green while verifying nothing:
 #
-#   1. No fixtures at all. Legitimate today — the detector does not exist yet
-#      — but it must be said out loud, not inferred from a green tick.
+#   1. No fixtures at all. Said out loud, not inferred from a green tick.
 #   2. Fixtures present but no test running them. `go test -run TestFixtures`
 #      exits 0 with "no tests to run", so the exit code alone cannot be
 #      trusted; the output is grepped.
@@ -68,7 +72,7 @@ test-fixtures:
 		echo "=============================================================="; \
 		exit 0; \
 	fi; \
-	out=$$(go test ./... -run TestFixtures -count=1 -tags=fixtures 2>&1); \
+	out=$$(go test ./cmd/doiq -run TestFixtures -count=1 -tags=fixtures -timeout 45m -v 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if echo "$$out" | grep -q "no tests to run"; then \
@@ -79,6 +83,37 @@ test-fixtures:
 
 ## build: both binaries into ./bin
 build: build-cli build-api
+
+## check-cli-deps: fail if the CLI links the backend, gRPC, protobuf or MongoDB (Phase 2.1)
+check-cli-deps:
+	@bad=$$(go list -deps ./cmd/doiq | grep -E "internal/backend|google.golang.org/grpc|google.golang.org/protobuf|mongo-driver" || true); \
+	if [ -n "$$bad" ]; then echo "CLI links forbidden packages:"; echo "$$bad"; exit 1; fi; \
+	echo "cli import boundary ok"
+
+## cover: coverage report; core CLI packages must stay at 80%+ (Phase 10.3)
+cover:
+	go test ./internal/detector ./internal/dockerfile ./internal/rules ./internal/analyzer -count=1 -coverprofile=coverage.out >/dev/null
+	@go tool cover -func=coverage.out | tail -1
+	@go tool cover -func=coverage.out | awk '/^total:/ { sub(/%/, "", $$3); if ($$3 + 0 < 80) { print "core coverage below 80%"; exit 1 } }'
+
+## web-install: install dashboard dependencies
+web-install:
+	cd web && npm ci --no-audit --no-fund
+
+## web-test: dashboard tests (React Testing Library)
+web-test:
+	cd web && npm test
+
+## web-build: production build of the dashboard into web/dist
+web-build:
+	cd web && npm run build
+
+## dev-api: run the API locally with the in-memory store and the built dashboard
+dev-api: build-api
+	DEPLOYIQ_MONGO_URI=memory:// DEPLOYIQ_GITHUB_CLIENT_ID=$${DEPLOYIQ_GITHUB_CLIENT_ID:-local-dev} \
+	DEPLOYIQ_GITHUB_CLIENT_SECRET=$${DEPLOYIQ_GITHUB_CLIENT_SECRET:-local-dev-secret} \
+	DEPLOYIQ_AUTH_SESSION_SIGNING_KEY=local-dev-signing-key-0123 DEPLOYIQ_LOG_FORMAT=text \
+	DEPLOYIQ_SERVER_WEB_DIR=web/dist ./bin/doiq-api -config configs/default.yml
 
 ## build-cli: the doiq CLI — the v1 product (single static binary, no cgo)
 build-cli:

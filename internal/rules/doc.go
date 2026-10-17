@@ -34,5 +34,8 @@
 //
 // Phase 10.3 puts this package in the 80%+ coverage band.
 //
-// Empty until Phase 2 of the build plan (MVP).
+// Also here: carry.go — what is preserved from an existing Dockerfile (ports,
+// env, workdir, start command, health check, unrecognised RUN steps), on the
+// principle that the engine changes how the image is built, never how the app
+// runs.
 package rules

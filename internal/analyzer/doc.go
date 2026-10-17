@@ -18,5 +18,9 @@
 //
 // Phase 10.3 puts the size-estimate maths in the high-coverage band.
 //
-// Empty until Phase 2 of the build plan (MVP).
+// Files: sizeestimate.go (base-image and package tables, Compare), deps.go
+// (dependency, cache and source-size estimates). Sizes follow classic
+// `docker images` (uncompressed); Docker Desktop's containerd store reports
+// roughly 1.4x larger figures for the same images, which does not change the
+// before/after ratio.
 package analyzer

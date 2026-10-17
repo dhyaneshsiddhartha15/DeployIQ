@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "poetry-fixture"
+version = "0.1.0"
+description = "DeployIQ fixture: Poetry-managed Flask app, no Dockerfile."
+authors = ["DeployIQ <fixtures@deployiq.dev>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+flask = "3.0.3"
+gunicorn = "23.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

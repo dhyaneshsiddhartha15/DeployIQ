@@ -25,7 +25,9 @@
 //	    ...
 //	}
 //
-// Empty until Phase 4 of the build plan. Phase 4.5 names the first four routes:
-// POST /api/v1/optimizations, GET /api/v1/optimizations, GET
-// /api/v1/auth/github/callback, GET /api/v1/me.
+// Files: grpc.go (OptimizationsService, UsersService — exposed as REST by the
+// gateway), auth.go (GET /api/v1/auth/github/login and /callback: plain HTTP,
+// because their job is to issue redirects), errors.go (the one JSON error
+// envelope every route returns, and the gateway error handler that keeps
+// decoder messages from reflecting input).
 package handler

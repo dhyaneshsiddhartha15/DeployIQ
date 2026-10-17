@@ -55,3 +55,19 @@ updates:
       day: monday
     commit-message:
       prefix: "build"
+
+  # The dashboard (Phase 5+). Grouped into one weekly PR: React and its test
+  # tooling move together, and the bundle is small enough that one review
+  # covers it.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "web"
+    groups:
+      web:
+        patterns:
+          - "*"

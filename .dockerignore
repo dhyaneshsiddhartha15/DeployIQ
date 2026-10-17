@@ -5,9 +5,14 @@
 bin/
 dist/
 docs/
-web/
 testdata/
 *.md
 .env
 .env*
 configs/*.local.yml
+
+# The dashboard sources are needed (the image builds them); its local
+# dependencies and build output are not.
+web/node_modules/
+web/dist/
+web/coverage/

@@ -69,4 +69,15 @@ const (
 	ExitFailure      = 1
 	ExitUsage        = 2
 	ExitStackUnknown = 3
+
+	// ExitUnsupported means the stack was recognised but the repository or
+	// its Dockerfile uses something v1 deliberately refuses to interpret
+	// (Phase 1.4: fail safely rather than guess). Distinct from
+	// ExitFailure so CI can tell "not applicable" from "broken".
+	ExitUnsupported = 4
 )
+
+// DefaultAPIEndpoint is the hosted API the CLI reports to — only when the user
+// explicitly opts in with `doiq login` and -report (Phase 4.6). Phase 8.6
+// names a single subdomain for it.
+const DefaultAPIEndpoint = "https://api.deployiq.dev"

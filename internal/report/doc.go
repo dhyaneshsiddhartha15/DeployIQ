@@ -17,5 +17,5 @@
 // here than in detector/dockerfile/rules, and chasing a coverage number on
 // formatting is not worth the effort.
 //
-// Empty until Phase 2 of the build plan (MVP).
+// Files: report.go (Print, PrintJSON), diff.go (unified diff).
 package report
