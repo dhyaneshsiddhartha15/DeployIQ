@@ -267,3 +267,43 @@ func TestReportFiles(t *testing.T) {
 		t.Fatal("report files not written")
 	}
 }
+
+func TestScanCommand(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"svc-a", "svc-b"} {
+		d := filepath.Join(root, name)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "package.json"), []byte(`{"scripts":{"start":"node i.js"}}`), 0o644)
+		os.WriteFile(filepath.Join(d, "i.js"), nil, 0o644)
+	}
+	bad := filepath.Join(root, "custom")
+	os.MkdirAll(bad, 0o755)
+	os.WriteFile(filepath.Join(bad, "go.mod"), []byte("module m\n"), 0o644)
+	os.WriteFile(filepath.Join(bad, "main.go"), []byte("package main\nfunc main(){}\n"), 0o644)
+	os.WriteFile(filepath.Join(bad, "Dockerfile"), []byte("FROM acme/base:1\n"), 0o644)
+
+	out := filepath.Join(t.TempDir(), "fleet.csv")
+	wd := t.TempDir()
+	r := runCLI(t, "", false, "scan", "-format", "csv", "-out", out, "-write-dir", wd, root)
+	if r.code != 0 {
+		t.Fatalf("%d %s", r.code, r.stderr)
+	}
+	csv, _ := os.ReadFile(out)
+	for _, want := range []string{"svc-a,", "svc-b,", "custom,", "skipped"} {
+		if !strings.Contains(string(csv), want) {
+			t.Errorf("missing %q in:\n%s", want, csv)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(wd, "svc-a", "Dockerfile.optimized")); err != nil {
+		t.Fatal("-write-dir output missing")
+	}
+	if _, err := os.Stat(filepath.Join(root, "svc-a", "Dockerfile.optimized")); err == nil {
+		t.Fatal("scan wrote into a repository")
+	}
+	if r := runCLI(t, "", false, "scan", t.TempDir()); r.code != constants.ExitStackUnknown {
+		t.Fatalf("empty dir: %d", r.code)
+	}
+	if r := runCLI(t, "", false, "scan", "-format", "xml", root); r.code != constants.ExitUsage {
+		t.Fatalf("bad format: %d", r.code)
+	}
+}

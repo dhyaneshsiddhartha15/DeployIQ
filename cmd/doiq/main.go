@@ -245,6 +245,8 @@ func run(args []string, e env) int {
 		switch args[0] {
 		case "login", "logout", "whoami":
 			return runAccount(args[0], args[1:], e)
+		case "scan":
+			return runScan(args[1:], e)
 		}
 	}
 
