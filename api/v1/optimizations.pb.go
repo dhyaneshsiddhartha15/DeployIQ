@@ -42,7 +42,7 @@ type Optimization struct {
 	SavingsPercent float64 `protobuf:"fixed64,8,opt,name=savings_percent,json=savingsPercent,proto3" json:"savings_percent,omitempty"`
 	// org is the organisation slug the report was sent into, if any.
 	Org string `protobuf:"bytes,9,opt,name=org,proto3" json:"org,omitempty"`
-	// reported_by is the reporter.s display name.
+	// reported_by is the reporter's display name.
 	ReportedBy string `protobuf:"bytes,10,opt,name=reported_by,json=reportedBy,proto3" json:"reported_by,omitempty"`
 }
 

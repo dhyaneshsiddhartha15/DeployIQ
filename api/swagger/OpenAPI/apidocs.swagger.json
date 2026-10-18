@@ -709,7 +709,7 @@
         },
         "reportedBy": {
           "type": "string",
-          "description": "reported_by is the reporter.s display name.",
+          "description": "reported_by is the reporter's display name.",
           "readOnly": true
         }
       },
