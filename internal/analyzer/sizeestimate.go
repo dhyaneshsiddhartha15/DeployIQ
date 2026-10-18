@@ -211,9 +211,9 @@ func javaImageMB(img dockerfile.Image) float64 {
 	jre := strings.Contains(tag, "jre") || strings.Contains(img.Repository, "jre")
 	switch {
 	case jre && alpine:
-		return 180
+		return 200
 	case jre:
-		return 270
+		return 315
 	case alpine:
 		return 340
 	}

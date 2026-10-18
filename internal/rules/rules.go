@@ -122,6 +122,7 @@ func init() {
 	register(nodeGenerator{})
 	register(goGenerator{})
 	register(pythonGenerator{})
+	register(javaGenerator{})
 }
 
 // Generate dispatches to the stack's generator (FR-3).

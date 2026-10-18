@@ -178,7 +178,10 @@ var (
 	goBuildRe   = regexp.MustCompile(`^(?:\S+=\S+\s+)*go\s+(build|install)\b`)
 	goOutRe     = regexp.MustCompile(`\s-o[\s=]+(\S+)`)
 	nodeBuildRe = regexp.MustCompile(`^(npm\s+run|yarn(\s+run)?|pnpm(\s+run)?)\s+build\b`)
-	houseRe     = regexp.MustCompile(`^(?:sudo\s+)?(?:apt-get|apt|apk|yum|dnf|microdnf)\s+(update|upgrade|clean|autoremove|-y\s+update)|^rm\s+-[rf]+\s+(/var/lib/apt/lists|/var/cache|/root/\.cache|/tmp|~/.cache)|^(npm|yarn)\s+cache\s+clean|^curl\s.*(nodesource|deb\.nodesource)|^pip[0-9.]*\s+install\s+(--upgrade|-U)\s+pip\s*$|^python[0-9.]*\s+-m\s+pip\s+install\s+(--upgrade|-U)\s+pip\s*$|^corepack\s+enable|^npm\s+(install|i)\s+-g\s+(npm|yarn|pnpm)(@\S+)?\s*$`)
+	// Maven and Gradle (and their wrappers): a dependency warm-up or a build.
+	javaToolRe = regexp.MustCompile(`^(?:\S+=\S+\s+)*(?:sh\s+)?(?:\./)?(?:mvnw?|gradlew?)(\s|$)`)
+	javaDepsRe = regexp.MustCompile(`go-offline|dependency:resolve|\bdependencies\b`)
+	houseRe    = regexp.MustCompile(`^(?:sudo\s+)?(?:apt-get|apt|apk|yum|dnf|microdnf)\s+(update|upgrade|clean|autoremove|-y\s+update)|^rm\s+-[rf]+\s+(/var/lib/apt/lists|/var/cache|/root/\.cache|/tmp|~/.cache)|^(npm|yarn)\s+cache\s+clean|^curl\s.*(nodesource|deb\.nodesource)|^pip[0-9.]*\s+install\s+(--upgrade|-U)\s+pip\s*$|^python[0-9.]*\s+-m\s+pip\s+install\s+(--upgrade|-U)\s+pip\s*$|^corepack\s+enable|^npm\s+(install|i)\s+-g\s+(npm|yarn|pnpm)(@\S+)?\s*$`)
 )
 
 func classify(cmd string) Command {
@@ -215,6 +218,11 @@ func classify(cmd string) Command {
 		}
 	case nodeBuildRe.MatchString(cmd):
 		c.Kind = CommandBuild
+	case javaToolRe.MatchString(cmd):
+		c.Kind = CommandBuild
+		if javaDepsRe.MatchString(cmd) {
+			c.Kind, c.ProdOnly = CommandDepsInstall, true
+		}
 	}
 	return c
 }

@@ -93,9 +93,32 @@ func minFloat(a, b float64) float64 {
 	return b
 }
 
+// JavaArtifactMB estimates the runnable artifact: a Spring Boot fat jar carries
+// its dependencies (typically 20–60 MB for a web service); a plain jar with its
+// runtime classpath is smaller.
+func JavaArtifactMB(j *detector.JavaInfo) float64 {
+	if j.SpringBoot {
+		return 25
+	}
+	return 8
+}
+
+// JavaDepsCacheMB estimates the local repository (~/.m2 or the Gradle cache) a
+// single-stage build leaves behind: every plugin and dependency, with sources
+// of the build tool itself.
+func JavaDepsCacheMB(j *detector.JavaInfo) float64 {
+	if j.SpringBoot {
+		return 180
+	}
+	if j.Tool == detector.JavaToolGradle {
+		return 120
+	}
+	return 60
+}
+
 // SourceExclusions are never counted as application source: they are either
 // rebuilt in the image (node_modules) or not application files.
-var SourceExclusions = []string{".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".tox", ".idea", ".vscode"}
+var SourceExclusions = []string{".git", "node_modules", "target", ".gradle", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".tox", ".idea", ".vscode"}
 
 // maxSourceFiles bounds the walk; beyond it the remainder is extrapolated. A
 // 10,000-file repo must finish analysis in under five seconds (Phase 1.2).

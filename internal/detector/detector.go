@@ -37,6 +37,7 @@ type Result struct {
 	Node   *NodeInfo
 	Go     *GoInfo
 	Python *PythonInfo
+	Java   *JavaInfo
 }
 
 // Ambiguous reports whether more than one stack matched.
@@ -52,6 +53,7 @@ var probes = map[string]probe{
 	constants.StackNode:   detectNode,
 	constants.StackGo:     detectGo,
 	constants.StackPython: detectPython,
+	constants.StackJava:   detectJava,
 }
 
 // Detect identifies the stack of the repository at root (FR-1).

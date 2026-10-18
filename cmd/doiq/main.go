@@ -503,6 +503,15 @@ func stackDetail(det *detector.Result) string {
 			d += ", go " + det.Go.GoVersion
 		}
 		return d
+	case det.Java != nil:
+		d := det.Java.Tool
+		if det.Java.Version > 0 {
+			d += fmt.Sprintf(", java %d", det.Java.Version)
+		}
+		if det.Java.SpringBoot {
+			d += ", Spring Boot"
+		}
+		return d
 	case det.Python != nil:
 		d := det.Python.Tool
 		if det.Python.Version != "" {

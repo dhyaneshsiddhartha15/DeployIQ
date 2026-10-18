@@ -703,3 +703,76 @@ func TestCustomBaseImageIsKept(t *testing.T) {
 		t.Errorf("rules %v", res.RulesApplied)
 	}
 }
+
+// --- Java ------------------------------------------------------------------------
+
+func TestJavaSpringBoot(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"pom.xml": `<project><parent><artifactId>spring-boot-starter-parent</artifactId></parent><properties><java.version>17</java.version></properties></project>`,
+	})
+	contains(t, res, "FROM maven:3.9-eclipse-temurin-17 AS build", "COPY pom.xml ./", "dependency:go-offline",
+		"mvn -B -q -DskipTests package\n", "/out/app.jar", "FROM eclipse-temurin:17-jre", "useradd --system",
+		"USER app", `ENTRYPOINT ["java", "-jar", "/app/app.jar"]`, "EXPOSE 8080")
+	shrinks(t, res)
+}
+
+func TestJavaWrapperAndExistingDockerfile(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"pom.xml": `<project><build><plugins><plugin><artifactId>maven-jar-plugin</artifactId><configuration><archive><manifest><mainClass>a.B</mainClass></manifest></archive></configuration></plugin></plugins></build></project>`,
+		"mvnw":    "", ".mvn/wrapper/x": "",
+		"Dockerfile": "FROM maven:3.9.6-eclipse-temurin-11\nWORKDIR /srv\nCOPY . .\nRUN ./mvnw package\nENV JAVA_OPTS=-Xmx512m\nCMD [\"java\",\"-jar\",\"target/app-1.0.jar\"]\n",
+	})
+	contains(t, res,
+		"FROM maven:3.9.6-eclipse-temurin-11 AS build", // the team's pinned builder
+		"COPY mvnw pom.xml ./\nCOPY .mvn ./.mvn", "chmod +x mvnw && ./mvnw",
+		"dependency:copy-dependencies", "FROM eclipse-temurin:11-jre",
+		"COPY --from=build --chown=app:app /out/app.jar /srv/target/app-1.0.jar",
+		"ENV JAVA_OPTS=-Xmx512m", `CMD ["java","-jar","target/app-1.0.jar"]`)
+	lacks(t, res, "RUN ./mvnw package\n") // the build step is not carried into the runtime
+}
+
+func TestJavaMvnRunReplaced(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"pom.xml":    `<project><parent><artifactId>spring-boot-starter-parent</artifactId></parent></project>`,
+		"Dockerfile": "FROM maven:3-eclipse-temurin-21\nCOPY . .\nCMD [\"mvn\",\"spring-boot:run\"]\n",
+	})
+	contains(t, res, `ENTRYPOINT ["java", "-jar", "/app/app.jar"]`)
+	lacks(t, res, "spring-boot:run")
+	if !hasNote(res, "replaced by running the built jar") {
+		t.Error(res.Notes)
+	}
+}
+
+func TestJavaGradleApplication(t *testing.T) {
+	res := mustGenerate(t, map[string]string{
+		"build.gradle": "plugins { id 'application' }\napplication { mainClass = 'demo.App' }\n",
+		"gradlew":      "", "gradle/wrapper/gradle-wrapper.properties": "",
+	})
+	contains(t, res, "FROM eclipse-temurin:21-jdk AS build", "COPY gradle ./gradle", "./gradlew --no-daemon -q installDist -x test",
+		"build/install/*/.", "COPY --from=build --chown=app:app /out/app /app", `ENTRYPOINT ["/app/bin/start"]`)
+}
+
+func TestJavaRefusals(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"war":         {"pom.xml": "<project><packaging>war</packaging></project>"},
+		"pom":         {"pom.xml": "<project><packaging>pom</packaging></project>"},
+		"multimodule": {"pom.xml": "<project><modules><module>a</module></modules></project>"},
+		"no main":     {"pom.xml": "<project></project>"},
+		"gradle lib":  {"build.gradle": "plugins { id 'java-library' }\n"},
+	} {
+		if _, err := generate(t, files); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("%s: want ErrUnsupported, got %v", name, err)
+		}
+	}
+}
+
+func TestJavaImageVersion(t *testing.T) {
+	for ref, want := range map[string]int{
+		"maven:3.9.6-eclipse-temurin-17": 17, "gradle:8.5-jdk21": 21, "eclipse-temurin:21-jre-alpine": 21,
+		"openjdk:11": 11, "amazoncorretto:17": 17, "maven:3-amazoncorretto-21": 21, "maven:latest": 0,
+	} {
+		if got := javaImageVersion(dockerfile.ParseImage(ref)); got != want {
+			t.Errorf("%s: %d", ref, got)
+		}
+	}
+}

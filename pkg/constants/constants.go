@@ -21,6 +21,7 @@ const (
 	StackNode    = "node"
 	StackGo      = "go"
 	StackPython  = "python"
+	StackJava    = "java"
 	StackUnknown = ""
 )
 
@@ -30,7 +31,7 @@ const (
 //
 // Phase 1.5 business rule: a stack may only be listed here once it has fixture
 // coverage under testdata/fixtures/. Documentation claims must match this slice.
-var SupportedStacks = []string{StackNode, StackGo, StackPython}
+var SupportedStacks = []string{StackNode, StackGo, StackPython, StackJava}
 
 // Manifest filenames the detector inspects (Phase 1, FR-1).
 const (
@@ -38,6 +39,9 @@ const (
 	ManifestGoMod           = "go.mod"
 	ManifestRequirementsTxt = "requirements.txt"
 	ManifestPyProjectTOML   = "pyproject.toml"
+	ManifestPomXML          = "pom.xml"
+	ManifestBuildGradle     = "build.gradle"
+	ManifestBuildGradleKts  = "build.gradle.kts"
 )
 
 // Dockerfile filenames read and written by the CLI.

@@ -365,3 +365,57 @@ func TestNormalizePythonName(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectJavaMaven(t *testing.T) {
+	res, err := Detect(repo(t, map[string]string{
+		"pom.xml": `<project><artifactId>svc</artifactId>
+  <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId></parent>
+  <properties><java.version>17</java.version></properties></project>`,
+		"mvnw": "", ".mvn/wrapper/maven-wrapper.properties": "",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := res.Java
+	if res.Stack != constants.StackJava || j.Tool != JavaToolMaven || !j.SpringBoot || j.Version != 17 || !j.Wrapper || j.Name != "svc" || j.Packaging != "jar" {
+		t.Fatalf("%+v", j)
+	}
+
+	res, _ = Detect(repo(t, map[string]string{"pom.xml": `<project><packaging>war</packaging>
+  <properties><release.v>11</release.v></properties>
+  <modules><module>a</module></modules>
+  <build><plugins>
+    <plugin><artifactId>maven-compiler-plugin</artifactId><configuration><release>${release.v}</release></configuration></plugin>
+    <plugin><artifactId>maven-jar-plugin</artifactId><configuration><archive><manifest><mainClass>x.Main</mainClass></manifest></archive></configuration></plugin>
+  </plugins></build></project>`}))
+	j = res.Java
+	if j.Packaging != "war" || !j.MultiModule || j.Version != 11 || j.MainClass != "x.Main" || j.SpringBoot {
+		t.Fatalf("%+v", j)
+	}
+	if _, err := Detect(repo(t, map[string]string{"pom.xml": "<project><unclosed>"})); err == nil {
+		t.Fatal("bad xml accepted")
+	}
+}
+
+func TestDetectJavaGradle(t *testing.T) {
+	res, err := Detect(repo(t, map[string]string{
+		"build.gradle.kts":    "plugins {\n  application\n  id(\"org.springframework.boot\") version \"3.3.5\"\n}\njava { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }\napplication { mainClass.set(\"demo.AppKt\") }\n",
+		"settings.gradle.kts": "rootProject.name = \"kt-app\"\ninclude(\"lib\")\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := res.Java
+	if j.Tool != JavaToolGradle || !j.KotlinDSL || !j.SpringBoot || !j.Application || j.Version != 21 || j.MainClass != "demo.AppKt" || j.Name != "kt-app" || !j.MultiModule {
+		t.Fatalf("%+v", j)
+	}
+	res, _ = Detect(repo(t, map[string]string{"build.gradle": "apply plugin: 'war'\nsourceCompatibility = '1.8'\n"}))
+	if res.Java.Version != 8 || res.Java.Packaging != "war" || res.Java.Application {
+		t.Fatalf("%+v", res.Java)
+	}
+	for in, want := range map[string]int{"17": 17, "1.8": 8, "21.0.2": 21, "": 0, "abc": 0, "99": 0} {
+		if got := javaMajor(in); got != want {
+			t.Errorf("javaMajor(%q) = %d", in, got)
+		}
+	}
+}
