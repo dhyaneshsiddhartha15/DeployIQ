@@ -12,7 +12,7 @@
 # Build from the repository root:  docker build -f build/Dockerfile .
 
 # --- dashboard build stage ------------------------------------------------------
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 
 WORKDIR /web
 
@@ -24,7 +24,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- api build stage ------------------------------------------------------------
-FROM golang:1.24-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /workspace
 
