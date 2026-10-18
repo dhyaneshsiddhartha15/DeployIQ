@@ -81,6 +81,7 @@ func (goGenerator) Generate(ctx *Context) (*Result, error) {
 	// packages, users and config files live, and rewriting it is all risk
 	// and no saving. Only the build stage is improved.
 	setup := collectBuildSetup(c)
+	setup.goproxy = ctx.Packages.GoProxy
 	if keepsRuntime(c) {
 		return goKeepRuntime(c, g, setup, name, pkg, goVersion, existingBuild, notes)
 	}

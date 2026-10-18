@@ -26,8 +26,16 @@ type Report struct {
 	StackDetail string `json:"stackDetail,omitempty"`
 
 	// Existing describes the current Dockerfile, or "" when there is none.
-	Existing    string `json:"existingDockerfile,omitempty"`
-	ExistingRaw string `json:"-"`
+	// ExistingPath is its path relative to the repository.
+	Existing     string `json:"existingDockerfile,omitempty"`
+	ExistingPath string `json:"existingDockerfilePath,omitempty"`
+	ExistingRaw  string `json:"-"`
+
+	// Measured is set with -measure: real image sizes from docker build.
+	Measured *Measurement `json:"measured,omitempty"`
+
+	// Vulns is set with -scan-vulns: vulnerability counts of both images.
+	Vulns *VulnComparison `json:"vulnerabilities,omitempty"`
 
 	RulesApplied   []string `json:"rulesApplied"`
 	AlreadyPresent []string `json:"alreadyPresent,omitempty"`
@@ -120,6 +128,33 @@ func Print(w io.Writer, r *Report, opts Options) error {
 
 	p.line("")
 	printEstimate(p, r)
+	if m := r.Measured; m != nil {
+		p.line("")
+		p.line("Measured with docker build:")
+		if m.BeforeMB > 0 {
+			p.line(fmt.Sprintf("  %-22s %12s %12s", "image size", mb(m.BeforeMB), mb(m.AfterMB)))
+			p.line(fmt.Sprintf("  Measured reduction: %.0f%%", m.SavedPercent()))
+		} else {
+			p.line(fmt.Sprintf("  %-22s %12s %12s", "image size", "(none)", mb(m.AfterMB)))
+		}
+	}
+	if v := r.Vulns; v != nil {
+		p.line("")
+		p.line("Known vulnerabilities (" + v.Scanner + "):")
+		p.line(fmt.Sprintf("  %-22s %12s %12s", "", "before", "after"))
+		row := func(name string, b, a int) {
+			bs := "-"
+			if v.HasBefore {
+				bs = fmt.Sprint(b)
+			}
+			p.line(fmt.Sprintf("  %-22s %12s %12d", name, bs, a))
+		}
+		row("critical", v.Before.Critical, v.After.Critical)
+		row("high", v.Before.High, v.After.High)
+		row("medium", v.Before.Medium, v.After.Medium)
+		row("low", v.Before.Low, v.After.Low)
+		row("total", v.Before.Total(), v.After.Total())
+	}
 
 	if len(r.Notes) > 0 {
 		p.line("")
@@ -132,7 +167,7 @@ func Print(w io.Writer, r *Report, opts Options) error {
 	if !opts.Quiet {
 		p.line("")
 		if opts.Diff && r.ExistingRaw != "" {
-			d := Diff(constants.DockerfileName, constants.DockerfileOutputName, r.ExistingRaw, r.Dockerfile, 3)
+			d := Diff(existingName(r), constants.DockerfileOutputName, r.ExistingRaw, r.Dockerfile, 3)
 			if d == "" {
 				p.line("(no differences)")
 			} else {

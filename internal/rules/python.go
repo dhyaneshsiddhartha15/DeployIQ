@@ -65,13 +65,16 @@ func (pythonGenerator) Generate(ctx *Context) (*Result, error) {
 		variant, osFamily = "alpine", "alpine"
 		had[RuleAlpineBase] = true
 	}
-	if c.packageManager == "dnf" && len(c.runtimePackages()) > 0 {
+	image := "python:" + version + "-" + variant
+	if image, variant, osFamily = keepCustomBase(c, dockerfile.FamilyPython, image, variant, osFamily, &notes); c.runtime.Custom() != nil {
+		had[RuleSlimBase], had[RuleAlpineBase] = true, true
+	}
+	if c.packageManager == "dnf" && len(c.runtimePackages()) > 0 && osFamily != "rhel" {
 		return nil, unsupported("the existing image installs RHEL-family packages (%s); translating them is not supported", strings.Join(c.runtimePackages(), " "))
 	}
 	if osFamily == "debian" && c.packageManager == "apk" && len(c.packages) > 0 {
 		return nil, unsupported("the existing image installs Alpine packages (%s) but the runtime would be Debian; translating package names is not supported", strings.Join(c.packages, " "))
 	}
-	image := "python:" + version + "-" + variant
 	if c.existing && c.runtime.Family() == dockerfile.FamilyPython && c.runtime.Variant() == dockerfile.VariantSlim {
 		had[RuleSlimBase] = true
 	}
@@ -139,6 +142,9 @@ func (pythonGenerator) Generate(ctx *Context) (*Result, error) {
 	f := &dockerfile.File{Header: header(constants.StackPython, c.existing)}
 	build := f.AddStage(image, "build", "--- build stage: compilers and pip stay here; only the virtualenv moves on ---")
 	build.Add("ENV", "PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1")
+	if idx := ctx.Packages.PyPI; idx != "" {
+		build.Note("Internal Python package index, from .doiq.yml.", "ENV", "PIP_INDEX_URL="+idx+" POETRY_REPOSITORIES_INTERNAL_URL="+idx)
+	}
 	if len(buildPkgs) > 0 {
 		build.Note("Build-time OS packages.", "RUN", osInstall(osFamily, buildPkgs))
 	}

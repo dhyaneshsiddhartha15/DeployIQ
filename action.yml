@@ -1,0 +1,124 @@
+# DeployIQ Optimizer as a GitHub Action.
+#
+# On a pull request it analyses the repository, posts (and keeps updating) one
+# comment with the possible image-size saving and the proposed Dockerfile, and
+# writes the same report to the job summary. Optionally it builds both images
+# for real sizes, scans them for vulnerabilities, and fails the check when the
+# saving passes a threshold.
+#
+#   - uses: dhyaneshsiddhartha15/DeployIQ@v1
+#     with:
+#       fail-over: 30
+#
+# See docs/GITHUB_ACTION.md.
+name: DeployIQ Optimizer
+description: Find out how much smaller your Docker image could be, with a proposed Dockerfile, on every pull request.
+author: DeployIQ
+branding:
+  icon: box
+  color: blue
+
+inputs:
+  path:
+    description: Repository directory to analyse.
+    default: "."
+  dockerfile:
+    description: Existing Dockerfile relative to path. Default ./Dockerfile, then build/, docker/, deploy/.
+    default: ""
+  comment:
+    description: Post or update a pull request comment ("true"/"false").
+    default: "true"
+  fail-over:
+    description: Fail when the image can shrink by at least this percent. 0 never fails.
+    default: "0"
+  measure:
+    description: Build both images with docker for real sizes ("true"/"false"). Slower.
+    default: "false"
+  scan-vulns:
+    description: Also scan both images for vulnerabilities with Trivy ("true"/"false"). Implies measure.
+    default: "false"
+  build-args:
+    description: Newline-separated KEY=VALUE build arguments for -measure (use secrets for tokens).
+    default: ""
+  fail-on-unsupported:
+    description: Fail when the repo's stack is not supported or doiq declines to guess ("true"/"false").
+    default: "false"
+  github-token:
+    description: Token used to post the comment. Needs pull-requests write.
+    default: ${{ github.token }}
+  go-version:
+    description: Go version used to build doiq.
+    default: "stable"
+
+outputs:
+  saving-percent:
+    description: Possible size reduction in percent (measured when measure is on, else estimated).
+    value: ${{ steps.run.outputs.saving-percent }}
+  before-mb:
+    description: Current image size in MB.
+    value: ${{ steps.run.outputs.before-mb }}
+  after-mb:
+    description: Optimized image size in MB.
+    value: ${{ steps.run.outputs.after-mb }}
+  exit-code:
+    description: doiq's exit code (0 ok, 3 no stack, 4 unsupported, 5 over threshold).
+    value: ${{ steps.run.outputs.exit-code }}
+  report:
+    description: Path to the JSON report.
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    # Built from the action's own checkout, so the version is exactly the
+    # ref the workflow pinned (@v1, @<sha>).
+    - name: Build doiq
+      shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/doiq" ./cmd/doiq
+
+    - name: Analyse
+      id: run
+      shell: bash
+      env:
+        DOIQ_BIN: ${{ runner.temp }}/doiq
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+        INPUT_FAIL_OVER: ${{ inputs.fail-over }}
+        INPUT_MEASURE: ${{ inputs.measure }}
+        INPUT_SCAN_VULNS: ${{ inputs.scan-vulns }}
+        INPUT_BUILD_ARGS: ${{ inputs.build-args }}
+      run: bash "$GITHUB_ACTION_PATH/.github/action/run.sh"
+
+    - name: Comment on the pull request
+      if: github.event_name == 'pull_request' && inputs.comment == 'true' && steps.run.outputs.markdown != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BODY_FILE: ${{ steps.run.outputs.markdown }}
+      run: bash "$GITHUB_ACTION_PATH/.github/action/comment.sh"
+
+    # Last, so the comment is posted even when the check is going to fail.
+    - name: Apply the result
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.exit-code }}
+        FAIL_ON_UNSUPPORTED: ${{ inputs.fail-on-unsupported }}
+      run: |
+        case "$CODE" in
+          0) exit 0 ;;
+          3|4)
+            if [ "$FAIL_ON_UNSUPPORTED" = "true" ]; then exit "$CODE"; fi
+            echo "::notice::DeployIQ did not analyse this repository (exit $CODE); see the log above."
+            exit 0 ;;
+          5) echo "::error::The image can be made smaller than the configured threshold allows; see the pull request comment."; exit 5 ;;
+          *) exit "$CODE" ;;
+        esac

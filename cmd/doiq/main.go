@@ -28,6 +28,7 @@ import (
 
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/detector"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/dockerfile"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/orgconfig"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/report"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/rules"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/constants"
@@ -41,6 +42,9 @@ var errStackUnknown = errors.New("Could not detect a supported stack in this rep
 
 // errNotConfirmed is returned when a write was requested but not confirmed.
 var errNotConfirmed = errors.New("nothing was written")
+
+// errImprovable is returned when -fail-over is set and the saving reaches it.
+var errImprovable = errors.New("Dockerfile can be optimized") //nolint:revive,stylecheck // user-facing
 
 // options is the parsed command line.
 type options struct {
@@ -61,8 +65,32 @@ type options struct {
 	// and exists for CI, where there is no one to prompt.
 	yes bool
 
-	// format is text or json.
+	// format is text, json or markdown.
 	format string
+
+	// measure builds both images with docker and reports real sizes.
+	measure bool
+
+	// scanVulns scans both images for known vulnerabilities (implies
+	// measure).
+	scanVulns bool
+
+	// failOver makes the run exit ExitImprovable when the saving is at
+	// least this many percent. 0 disables the gate.
+	failOver float64
+
+	// buildArgs are passed to docker build with -measure.
+	buildArgs multiFlag
+
+	// keepImages keeps the measured images instead of deleting them.
+	keepImages bool
+
+	// jsonOut and markdownOut also write the report to files, so CI gets
+	// every format from a single run.
+	jsonOut, markdownOut string
+
+	// config is an explicit .doiq.yml path.
+	config string
 
 	// diff shows a unified diff against the existing Dockerfile.
 	diff bool
@@ -110,7 +138,15 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 	fs.BoolVar(&opts.write, "write", false, "write "+constants.DockerfileOutputName+" after confirmation (default: dry run, nothing is modified)")
 	fs.BoolVar(&opts.dryRun, "dry-run", false, "explicitly request the default: analyse and print, write nothing")
 	fs.BoolVar(&opts.yes, "yes", false, "confirm -write without prompting (for CI)")
-	fs.StringVar(&opts.format, "format", "text", "output format: text or json")
+	fs.StringVar(&opts.format, "format", "text", "output format: text, json or markdown (for pull request comments)")
+	fs.BoolVar(&opts.measure, "measure", false, "build the current and optimized images with docker and report real sizes (needs Docker)")
+	fs.BoolVar(&opts.scanVulns, "scan-vulns", false, "also scan both images for known vulnerabilities with Trivy (needs Docker; implies -measure)")
+	fs.Float64Var(&opts.failOver, "fail-over", 0, "exit with code 5 when the image can shrink by at least this percent (CI gate)")
+	fs.Var(&opts.buildArgs, "build-arg", "KEY=VALUE passed to docker build with -measure; repeatable (e.g. a private module token)")
+	fs.BoolVar(&opts.keepImages, "keep-images", false, "with -measure, keep the built images instead of deleting them")
+	fs.StringVar(&opts.config, "config", "", "company settings file (default: <repo>/.doiq.yml, plus the org default in your user config dir)")
+	fs.StringVar(&opts.jsonOut, "json-out", "", "also write the JSON report to this file")
+	fs.StringVar(&opts.markdownOut, "markdown-out", "", "also write the Markdown report to this file")
 	fs.BoolVar(&opts.diff, "diff", false, "show a unified diff against the existing Dockerfile instead of the full file")
 	fs.StringVar(&opts.dockerfile, "dockerfile", "", "existing Dockerfile, relative to the repo (default: ./Dockerfile, then build/, docker/, deploy/)")
 	fs.BoolVar(&opts.quiet, "quiet", false, "omit the generated Dockerfile from the text report")
@@ -137,8 +173,11 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 		fmt.Fprintln(stderr, "-write and -dry-run are mutually exclusive")
 		return nil, errUsage
 	}
-	if opts.format != "text" && opts.format != "json" {
-		fmt.Fprintf(stderr, "-format must be text or json, got %q\n", opts.format)
+	if opts.scanVulns {
+		opts.measure = true
+	}
+	if opts.format != "text" && opts.format != "json" && opts.format != "markdown" {
+		fmt.Fprintf(stderr, "-format must be text, json or markdown, got %q\n", opts.format)
 		return nil, errUsage
 	}
 
@@ -155,6 +194,12 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 }
 
 var errUsage = errors.New("usage")
+
+// multiFlag collects a repeatable string flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 // validatePath resolves the target and confirms it is a readable directory.
 //
@@ -247,6 +292,9 @@ func run(args []string, e env) int {
 		case errors.Is(err, errNotConfirmed):
 			fmt.Fprintf(e.stderr, "%s: %v\n", constants.AppName, err)
 			return constants.ExitOK
+		case errors.Is(err, errImprovable):
+			fmt.Fprintf(e.stderr, "%s: %v\n", constants.AppName, err)
+			return constants.ExitImprovable
 		}
 		fmt.Fprintf(e.stderr, "%s: %v\n", constants.AppName, err)
 		return constants.ExitFailure
@@ -254,34 +302,46 @@ func run(args []string, e env) int {
 	return constants.ExitOK
 }
 
-// analyse runs the optimization pipeline over the repository at root.
-func analyse(root string, opts *options, e env) error {
+// buildReport runs detection, parsing, generation and estimation over one
+// repository. It reads only; nothing is written and nothing is executed.
+func buildReport(root, dockerfilePath, configPath string) (*report.Report, error) {
 	start := time.Now()
+
+	// Company knowledge from .doiq.yml (optional; Phase 0.7 needs none).
+	cfg, sources, err := orgconfig.Load(root, configPath)
+	if err != nil {
+		return nil, err
+	}
+	applyOrgConfig(cfg)
+	defer applyOrgConfig(&orgconfig.Config{}) // nothing leaks into the next repo of a scan
+	slog.Debug("configuration", slog.Any("sources", sources))
 
 	det, err := detector.Detect(root) // FR-1
 	if errors.Is(err, detector.ErrNoStack) {
-		return errStackUnknown // FR-7, US-3
+		return nil, errStackUnknown // FR-7, US-3
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	slog.Debug("stack detected", slog.String("stack", det.Stack), slog.Any("others", det.Others))
 
 	// FR-2; nil when absent. -dockerfile names one explicitly; otherwise
 	// the root and the conventional build/, docker/, deploy/ dirs are tried.
 	var existing *dockerfile.Dockerfile
-	if opts.dockerfile != "" {
-		existing, err = dockerfile.ParseFile(root, opts.dockerfile)
+	if dockerfilePath != "" {
+		existing, err = dockerfile.ParseFile(root, dockerfilePath)
 	} else {
 		existing, err = dockerfile.Parse(root)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	res, err := rules.Generate(&rules.Context{Root: root, Detection: det, Existing: existing}) // FR-3
+	res, err := rules.Generate(&rules.Context{Root: root, Detection: det, Existing: existing, Packages: rules.PackageMirrors{
+		NPM: cfg.Packages.NPM, PyPI: cfg.Packages.PyPI, GoProxy: cfg.Packages.GoProxy, Maven: cfg.Packages.Maven,
+	}}) // FR-3
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	existingDesc, existingRaw := "", ""
@@ -290,21 +350,47 @@ func analyse(root string, opts *options, e env) error {
 		existingRaw = string(existing.Raw)
 	}
 	rep := report.New(root, det.Stack, det.Manifest, det.Others, stackDetail(det), existingDesc, existingRaw, res) // FR-4
+	if existing != nil {
+		rep.ExistingPath = existing.RelPath
+	}
 	slog.Debug("analysis complete", slog.Duration("took", time.Since(start)))
+	return rep, nil
+}
 
-	if opts.format == "json" {
-		if err := report.PrintJSON(e.stdout, rep); err != nil {
-			return err
-		}
-	} else {
-		if err := report.Print(e.stdout, rep, report.Options{Diff: opts.diff, Quiet: opts.quiet}); err != nil {
+// analyse runs the optimization pipeline over the repository at root.
+func analyse(root string, opts *options, e env) error {
+	rep, err := buildReport(root, opts.dockerfile, opts.config)
+	if err != nil {
+		return err
+	}
+
+	// Opt-in: build the images for real, then scan them. Both need Docker
+	// and are off by default (Phase 0.6: the default run is static).
+	if opts.measure || opts.scanVulns {
+		if err := measureReport(root, rep, opts, e); err != nil {
 			return err
 		}
 	}
 
+	if err := writeReportFiles(rep, opts); err != nil {
+		return err
+	}
+
+	switch opts.format {
+	case "json":
+		err = report.PrintJSON(e.stdout, rep)
+	case "markdown":
+		err = report.PrintMarkdown(e.stdout, rep)
+	default:
+		err = report.Print(e.stdout, rep, report.Options{Diff: opts.diff, Quiet: opts.quiet})
+	}
+	if err != nil {
+		return err
+	}
+
 	// Then, and only then, honour -write (FR-5, FR-6).
 	if opts.write {
-		if err := writeOutput(root, res.Dockerfile, opts, e); err != nil {
+		if err := writeOutput(root, []byte(rep.Dockerfile), opts, e); err != nil {
 			return err
 		}
 	} else if opts.format == "text" {
@@ -312,7 +398,21 @@ func analyse(root string, opts *options, e env) error {
 	}
 
 	if opts.report {
-		return sendReport(root, rep, opts, e)
+		if err := sendReport(root, rep, opts, e); err != nil {
+			return err
+		}
+	}
+
+	// CI gate: fail when the image could shrink by at least -fail-over
+	// percent, so a pull request with a wasteful Dockerfile is flagged.
+	if opts.failOver > 0 {
+		saving := rep.Estimate.SavedPercent
+		if rep.Measured != nil && rep.Measured.BeforeMB > 0 {
+			saving = rep.Measured.SavedPercent()
+		}
+		if saving >= opts.failOver {
+			return fmt.Errorf("%w: the image can be %.0f%% smaller (threshold %.0f%%)", errImprovable, saving, opts.failOver)
+		}
 	}
 	return nil
 }

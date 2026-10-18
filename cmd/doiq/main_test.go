@@ -243,3 +243,27 @@ func TestResolveEndpoint(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestFailOverGate(t *testing.T) {
+	dir := nodeRepo(t)
+	if r := runCLI(t, "", false, "-quiet", "-fail-over", "50", dir); r.code != constants.ExitImprovable || !strings.Contains(r.stderr, "can be") {
+		t.Fatalf("over threshold: %d %s", r.code, r.stderr)
+	}
+	if r := runCLI(t, "", false, "-quiet", "-fail-over", "99.9", dir); r.code != constants.ExitOK {
+		t.Fatalf("under threshold: %d %s", r.code, r.stderr)
+	}
+}
+
+func TestReportFiles(t *testing.T) {
+	out := t.TempDir()
+	jsonPath, mdPath := filepath.Join(out, "r.json"), filepath.Join(out, "r.md")
+	r := runCLI(t, "", false, "-format", "markdown", "-json-out", jsonPath, "-markdown-out", mdPath, nodeRepo(t))
+	if r.code != 0 || !strings.HasPrefix(r.stdout, "<!-- deployiq-optimizer -->") {
+		t.Fatalf("%d %q", r.code, r.stdout[:min(80, len(r.stdout))])
+	}
+	j, _ := os.ReadFile(jsonPath)
+	m, _ := os.ReadFile(mdPath)
+	if !json.Valid(j) || !strings.Contains(string(m), "### DeployIQ Optimizer") {
+		t.Fatal("report files not written")
+	}
+}

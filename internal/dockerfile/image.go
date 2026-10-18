@@ -1,6 +1,7 @@
 package dockerfile
 
 import (
+	"path"
 	"regexp"
 	"strings"
 )
@@ -76,8 +77,50 @@ const (
 	FamilyScratch    = "scratch"
 	FamilyRHEL       = "rhel" // ubi, centos, fedora, amazonlinux, rockylinux, almalinux
 	FamilyBuildpack  = "buildpack-deps"
+	FamilyJava       = "java" // eclipse-temurin, openjdk, amazoncorretto, maven, gradle
 	FamilyUnknown    = ""
 )
+
+// mirrors maps a registry host ("docker.io", "gcr.io") to a mirror prefix.
+var (
+	mirrors           map[string]string
+	mirrorKeepLibrary = true
+)
+
+// SetMirrors installs registry mirrors for generated images.
+func SetMirrors(m map[string]string, keepLibrary bool) {
+	mirrors, mirrorKeepLibrary = m, keepLibrary
+}
+
+// Mirror rewrites a public image reference through the configured mirror for
+// its registry. References with no mirror, and internal images, are returned
+// unchanged.
+func Mirror(ref string) string {
+	if len(mirrors) == 0 {
+		return ref
+	}
+	img := ParseImage(ref)
+	host := img.Registry
+	if host == "" {
+		host = "docker.io"
+	}
+	m, ok := mirrors[host]
+	if !ok || img.Custom() != nil {
+		return ref
+	}
+	repo := img.Repository
+	if host == "docker.io" && !strings.Contains(repo, "/") && mirrorKeepLibrary {
+		repo = "library/" + repo
+	}
+	out := strings.TrimRight(m, "/") + "/" + repo
+	if img.Tag != "" {
+		out += ":" + img.Tag
+	}
+	if img.Digest != "" {
+		out += "@" + img.Digest
+	}
+	return out
+}
 
 // Variants of an official language image.
 const (
@@ -86,10 +129,46 @@ const (
 	VariantAlpine = "alpine"
 )
 
-// Family classifies the image. Only official images and well-known vendor
-// repositories are recognised: a private "company/base" image could contain
-// anything, and v1 refuses to guess what (Phase 1.4).
+// CustomImage is an internal image declared in .doiq.yml, so it can be
+// classified instead of refused.
+type CustomImage struct {
+	Match   string // glob on the full reference
+	Family  string
+	Variant string
+	Version string
+	SizeMB  float64
+}
+
+// customImages is set once per run from configuration. Process-wide state is
+// acceptable here: the CLI analyses one configuration per process, and the
+// alternative is threading it through every Family() call.
+var customImages []CustomImage
+
+// SetCustomImages installs the declared internal images; nil clears them.
+func SetCustomImages(c []CustomImage) { customImages = c }
+
+// Custom returns the declaration matching this image, or nil.
+func (i Image) Custom() *CustomImage {
+	for k := range customImages {
+		c := &customImages[k]
+		if ok, _ := path.Match(c.Match, i.Ref); ok {
+			return c
+		}
+		// Also match the reference with an implicit tag spelled out.
+		if ok, _ := path.Match(c.Match, i.Ref+":"+i.Tag); ok && !strings.Contains(i.Ref, ":") {
+			return c
+		}
+	}
+	return nil
+}
+
+// Family classifies the image. Official images, well-known vendor
+// repositories and images declared in .doiq.yml are recognised; anything else
+// could contain anything, and doiq refuses to guess what (Phase 1.4).
 func (i Image) Family() string {
+	if c := i.Custom(); c != nil {
+		return c.Family
+	}
 	if i.Repository == "scratch" {
 		return FamilyScratch
 	}
@@ -117,6 +196,8 @@ func (i Image) Family() string {
 		return FamilyPython
 	case "golang", "circleci/golang", "cimg/go":
 		return FamilyGolang
+	case "eclipse-temurin", "openjdk", "amazoncorretto", "maven", "gradle", "ibm-semeru-runtimes", "sapmachine", "bellsoft/liberica-openjdk-alpine", "bellsoft/liberica-openjre-alpine":
+		return FamilyJava
 	case "ubuntu":
 		return FamilyUbuntu
 	case "debian":
@@ -136,6 +217,9 @@ func (i Image) Family() string {
 // Variant classifies an official language image's tag as full, slim or
 // alpine. Non-language families report their own name.
 func (i Image) Variant() string {
+	if c := i.Custom(); c != nil && c.Variant != "" {
+		return c.Variant
+	}
 	tag := strings.ToLower(i.Tag)
 	switch {
 	case strings.Contains(tag, "alpine"):
@@ -151,7 +235,13 @@ var versionRe = regexp.MustCompile(`^v?(\d+)(?:\.(\d+))?`)
 // Version extracts major and minor from the tag ("22-alpine" -> 22, -1;
 // "3.12-slim" -> 3, 12). Missing parts are -1.
 func (i Image) Version() (major, minor int) {
-	m := versionRe.FindStringSubmatch(i.Tag)
+	tag := i.Tag
+	if c := i.Custom(); c != nil {
+		// A declared version wins; an internal tag ("2024.06-hardened")
+		// rarely names the language version.
+		tag = c.Version
+	}
+	m := versionRe.FindStringSubmatch(tag)
 	if m == nil {
 		return -1, -1
 	}
@@ -173,7 +263,7 @@ func (i Image) OSFamily() string {
 		return "debian"
 	case FamilyRHEL:
 		return "rhel"
-	case FamilyNode, FamilyPython, FamilyGolang:
+	case FamilyNode, FamilyPython, FamilyGolang, FamilyJava:
 		if i.Variant() == VariantAlpine {
 			return "alpine"
 		}

@@ -129,7 +129,7 @@ func carry(ctx *Context, defaultWorkdir string) (*carried, error) {
 	c.multiStage = df.MultiStage()
 	c.runtime = df.RuntimeImage()
 	if c.runtime.Family() == dockerfile.FamilyUnknown {
-		return nil, unsupported("base image %q is not one this version recognises; v1 will not guess what a custom base image contains", c.runtime.Ref)
+		return nil, unsupported("base image %q is not one doiq recognises, and it will not guess what a custom image contains. If it is your company's base image, declare it in .doiq.yml (see docs/CONFIG.md)", c.runtime.Ref)
 	}
 	c.analysis = dockerfile.Analyze(df)
 
@@ -444,10 +444,30 @@ func apkInstall(pkgs []string) string {
 
 // osInstall picks the installer for the target OS family.
 func osInstall(osFamily string, pkgs []string) string {
-	if osFamily == "alpine" {
+	switch osFamily {
+	case "alpine":
 		return apkInstall(pkgs)
+	case "rhel":
+		// microdnf on minimal images, dnf elsewhere; whichever exists.
+		return "(command -v dnf >/dev/null && dnf install -y --setopt=install_weak_deps=False " + strings.Join(pkgs, " ") +
+			" && dnf clean all) || (microdnf install -y " + strings.Join(pkgs, " ") + " && microdnf clean all)"
 	}
 	return aptInstall(pkgs)
+}
+
+// keepCustomBase keeps a base image declared in .doiq.yml when the existing
+// Dockerfile uses one of the stack's family. It returns the image, variant and
+// OS family to generate with — unchanged when there is no such image.
+func keepCustomBase(c *carried, family, image, variant, osFamily string, notes *[]string) (string, string, string) {
+	if !c.existing || c.runtime.Custom() == nil || c.runtime.Family() != family {
+		return image, variant, osFamily
+	}
+	*notes = append(*notes, "Kept your internal base image "+c.runtime.Ref+" (declared in .doiq.yml) for both stages.")
+	os := c.runtime.OSFamily()
+	if os == "" {
+		os = "debian"
+	}
+	return c.runtime.Ref, c.runtime.Variant(), os
 }
 
 // hadLayerCaching reports whether the existing Dockerfile copied any of the

@@ -75,6 +75,10 @@ const (
 	// (Phase 1.4: fail safely rather than guess). Distinct from
 	// ExitFailure so CI can tell "not applicable" from "broken".
 	ExitUnsupported = 4
+
+	// ExitImprovable is returned only with -fail-over, when the image could
+	// shrink by at least the given percentage: a CI gate, not an error.
+	ExitImprovable = 5
 )
 
 // DefaultAPIEndpoint is the hosted API the CLI reports to — only when the user

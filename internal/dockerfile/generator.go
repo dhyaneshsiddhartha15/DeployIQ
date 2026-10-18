@@ -129,7 +129,7 @@ func Generate(f *File) []byte {
 		for _, c := range s.Comment {
 			writeComment(&b, c)
 		}
-		b.WriteString("FROM " + s.From)
+		b.WriteString("FROM " + Mirror(s.From))
 		if s.Name != "" && i < len(f.Stages)-1 {
 			b.WriteString(" AS " + s.Name)
 		}

@@ -86,6 +86,12 @@ func (nodeGenerator) Generate(ctx *Context) (*Result, error) {
 	if variant == dockerfile.VariantSlim {
 		image = fmt.Sprintf("node:%d-slim", major)
 	}
+	// A declared internal Node image stays: companies mandate their base
+	// images for patching and compliance, and the saving comes from the
+	// multi-stage build and pruning, not from swapping the base.
+	if image, variant, osFamily = keepCustomBase(c, dockerfile.FamilyNode, image, variant, osFamily, &notes); c.runtime.Custom() != nil {
+		had[RuleAlpineBase], had[RuleSlimBase] = true, true
+	}
 
 	// Tools the start command or health check relies on. Alpine has
 	// busybox wget but no curl or bash; slim has bash but no curl or wget.
@@ -143,6 +149,9 @@ func (nodeGenerator) Generate(ctx *Context) (*Result, error) {
 		build.Add("ENV", "COREPACK_ENABLE_DOWNLOAD_PROMPT=0")
 	}
 	build.Add("WORKDIR", c.workdir)
+	if reg := ctx.Packages.NPM; reg != "" {
+		build.Note("Internal npm registry, from .doiq.yml.", "ENV", "NPM_CONFIG_REGISTRY="+reg+" YARN_NPM_REGISTRY_SERVER="+reg)
+	}
 
 	buildPkgs := c.buildPackages()
 	if len(n.NativeModules) > 0 {

@@ -114,8 +114,13 @@ func BaseImageMB(ref string) (float64, bool) {
 	img := dockerfile.ParseImage(ref)
 	tag := strings.ToLower(img.Tag)
 	variant := img.Variant()
+	if c := img.Custom(); c != nil && c.SizeMB > 0 {
+		return c.SizeMB, true
+	}
 
 	switch img.Family() {
+	case dockerfile.FamilyJava:
+		return javaImageMB(img), true
 	case dockerfile.FamilyScratch:
 		return 0, true
 	case dockerfile.FamilyDistroless:
@@ -184,6 +189,35 @@ func BaseImageMB(ref string) (float64, bool) {
 		return 215, true
 	}
 	return unknownBaseMB, false
+}
+
+// javaImageMB sizes the Java images: build images (Maven, Gradle) carry a JDK
+// plus the build tool; runtime images a JRE. Alpine variants are smaller.
+func javaImageMB(img dockerfile.Image) float64 {
+	tag := strings.ToLower(img.Tag)
+	alpine := strings.Contains(tag, "alpine")
+	switch img.Name() {
+	case "maven":
+		if alpine {
+			return 380
+		}
+		return 520
+	case "gradle":
+		if alpine {
+			return 560
+		}
+		return 720
+	}
+	jre := strings.Contains(tag, "jre") || strings.Contains(img.Repository, "jre")
+	switch {
+	case jre && alpine:
+		return 180
+	case jre:
+		return 270
+	case alpine:
+		return 340
+	}
+	return 470
 }
 
 // packageMB is the approximate installed size of common OS packages, including

@@ -25,6 +25,9 @@ type buildSetup struct {
 	early []dockerfile.Instruction // before `go mod download`
 	late  []dockerfile.Instruction // after the source copy, before `go build`
 	git   bool                     // the setup needs git in the builder
+
+	// goproxy is an internal module proxy from .doiq.yml.
+	goproxy string
 }
 
 // collectBuildSetup gathers build-stage setup from the existing Dockerfile and
@@ -109,6 +112,9 @@ func goBuildStage(f *dockerfile.File, c *carried, g *detector.GoInfo, setup buil
 		build.Keep(in)
 	}
 	build.Add("WORKDIR", "/src")
+	if setup.goproxy != "" {
+		build.Note("Internal Go module proxy, from .doiq.yml.", "ENV", "GOPROXY="+setup.goproxy)
+	}
 	if len(setup.env) > 0 {
 		build.Add("ENV", envLine(setup.env))
 	}

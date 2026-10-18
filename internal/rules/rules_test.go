@@ -682,3 +682,24 @@ func TestGoPrivateSetupMovesToBuildStageFromSingleStage(t *testing.T) {
 	}
 	contains(t, res, "FROM golang:1.24 AS build", "gcr.io/distroless/static-debian12:nonroot")
 }
+
+func TestCustomBaseImageIsKept(t *testing.T) {
+	dockerfile.SetCustomImages([]dockerfile.CustomImage{{Match: "registry.acme.com/node:*", Family: dockerfile.FamilyNode, Variant: "alpine", Version: "20", SizeMB: 300}})
+	t.Cleanup(func() { dockerfile.SetCustomImages(nil) })
+	dir := repo(t, map[string]string{
+		"package.json": `{"scripts":{"start":"node a.js"}}`, "a.js": "",
+		"Dockerfile": "FROM registry.acme.com/node:hardened\nRUN apk add --no-cache tini\nCOPY . .\nRUN npm install\nCMD [\"node\",\"a.js\"]\n",
+	})
+	det, _ := detector.Detect(dir)
+	df, _ := dockerfile.Parse(dir)
+	res, err := Generate(&Context{Root: dir, Detection: det, Existing: df, Packages: PackageMirrors{NPM: "https://npm.acme.com/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, res, "FROM registry.acme.com/node:hardened AS build", "\nFROM registry.acme.com/node:hardened\n",
+		"apk add --no-cache tini", "NPM_CONFIG_REGISTRY=https://npm.acme.com/")
+	lacks(t, res, "node:20-alpine")
+	if hasRule(res, RuleAlpineBase) || !hasRule(res, RuleMultiStage) {
+		t.Errorf("rules %v", res.RulesApplied)
+	}
+}

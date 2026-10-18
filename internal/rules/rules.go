@@ -66,6 +66,15 @@ type Context struct {
 
 	// Existing is the parsed Dockerfile, or nil when the repo has none.
 	Existing *dockerfile.Dockerfile
+
+	// Packages are internal package registries from .doiq.yml; each set
+	// one is configured in the build stage.
+	Packages PackageMirrors
+}
+
+// PackageMirrors are internal package registries the build stage should use.
+type PackageMirrors struct {
+	NPM, PyPI, GoProxy, Maven string
 }
 
 // Result is a generated Dockerfile and everything the report needs about it.

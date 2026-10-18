@@ -115,3 +115,45 @@ func TestMB(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintMarkdown(t *testing.T) {
+	r := sample()
+	r.Measured = &Measurement{BeforeMB: 1000, AfterMB: 200}
+	r.Vulns = &VulnComparison{Scanner: "trivy", HasBefore: true, Before: VulnCounts{Critical: 4, High: 20}, After: VulnCounts{High: 1}}
+	var b bytes.Buffer
+	if err := PrintMarkdown(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{CommentMarker, "80% smaller", "measured", "| Measured size | 1000 MB → 200 MB |",
+		"| Vulnerabilities (critical/high) | 4 / 20 → 0 / 1 |", "`multi-stage-build`", "```diff", "Notes (1)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if !strings.HasPrefix(out, CommentMarker) {
+		t.Error("the marker must start the comment so the action can find it")
+	}
+
+	b.Reset()
+	r = sample()
+	r.ExistingRaw = ""
+	PrintMarkdown(&b, r)
+	if !strings.Contains(b.String(), "```dockerfile") || !strings.Contains(b.String(), "(estimate)") {
+		t.Fatalf("no-existing:\n%s", b.String())
+	}
+
+	b.Reset()
+	Print(&b, func() *Report {
+		r := sample()
+		r.Measured = &Measurement{AfterMB: 50}
+		r.Vulns = &VulnComparison{Scanner: "trivy"}
+		return r
+	}(), Options{Quiet: true})
+	if !strings.Contains(b.String(), "Measured with docker build") || !strings.Contains(b.String(), "Known vulnerabilities") {
+		t.Fatalf("text:\n%s", b.String())
+	}
+	if (&Measurement{BeforeMB: 0, AfterMB: 5}).SavedPercent() != 0 {
+		t.Error("SavedPercent without before")
+	}
+}

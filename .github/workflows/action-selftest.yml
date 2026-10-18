@@ -1,0 +1,32 @@
+# Runs this repository's own GitHub Action (action.yml) on every pull request,
+# against a fixture with a deliberately wasteful Dockerfile. It proves the
+# action works end to end — build, analyse, comment, summary — and shows on the
+# PR exactly what a user's PR would get.
+name: action self-test
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: doiq
+        uses: ./
+        with:
+          path: testdata/fixtures/node-express-basic
+          measure: "true"
+          scan-vulns: "true"
+
+      - name: check outputs
+        env:
+          SAVING: ${{ steps.doiq.outputs.saving-percent }}
+        run: |
+          echo "saving: $SAVING%"
+          test "$SAVING" -ge 50

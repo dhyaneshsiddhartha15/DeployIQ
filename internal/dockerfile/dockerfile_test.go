@@ -378,3 +378,38 @@ func TestParseFile(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomImagesAndMirrors(t *testing.T) {
+	SetCustomImages([]CustomImage{{Match: "registry.acme.com/base/py:*", Family: FamilyPython, Variant: "slim", Version: "3.11", SizeMB: 200}})
+	SetMirrors(map[string]string{"docker.io": "mirror.acme.com/hub/", "gcr.io": "mirror.acme.com/gcr"}, true)
+	t.Cleanup(func() { SetCustomImages(nil); SetMirrors(nil, true) })
+
+	img := ParseImage("registry.acme.com/base/py:2024.06")
+	if img.Family() != FamilyPython || img.Variant() != VariantSlim || img.OSFamily() != "debian" {
+		t.Fatalf("custom image: %s %s %s", img.Family(), img.Variant(), img.OSFamily())
+	}
+	if maj, min := img.Version(); maj != 3 || min != 11 {
+		t.Fatalf("declared version not used: %d.%d", maj, min)
+	}
+	if ParseImage("registry.acme.com/other:1").Family() != FamilyUnknown {
+		t.Fatal("undeclared image classified")
+	}
+	for in, want := range map[string]string{
+		"node:22-alpine":                   "mirror.acme.com/hub/library/node:22-alpine",
+		"bitnami/redis:7":                  "mirror.acme.com/hub/bitnami/redis:7",
+		"gcr.io/distroless/static:nonroot": "mirror.acme.com/gcr/distroless/static:nonroot",
+		"registry.acme.com/base/py:2024":   "registry.acme.com/base/py:2024", // internal: untouched
+		"quay.io/x/y:1":                    "quay.io/x/y:1",                  // no mirror configured
+	} {
+		if got := Mirror(in); got != want {
+			t.Errorf("Mirror(%s) = %s, want %s", in, got, want)
+		}
+	}
+	SetMirrors(map[string]string{"docker.io": "harbor.acme.com/proxy"}, false)
+	if got := Mirror("node:22"); got != "harbor.acme.com/proxy/node:22" {
+		t.Fatal(got)
+	}
+	if ParseImage("maven:3.9-eclipse-temurin-21").Family() != FamilyJava {
+		t.Fatal("java family")
+	}
+}
