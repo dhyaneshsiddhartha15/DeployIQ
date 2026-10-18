@@ -28,6 +28,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -114,7 +115,7 @@ func New(cfg *config.Config, opts ...Option) (*Server, error) {
 		}
 	}
 	// A nil interface, not a typed nil, when GitHub is not configured.
-	var gh service.GitHubOAuth = o.github
+	gh := o.github
 	if gh == nil && cfg.GitHubEnabled() {
 		gh = github.New(cfg.GitHub.ClientID, cfg.GitHub.ClientSecret, cfg.GitHub.AuthURL, cfg.GitHub.TokenURL, cfg.GitHub.APIURL)
 	}
@@ -284,10 +285,17 @@ func (s *Server) Auth() *service.Auth { return s.auth }
 // slog turns every gRPC error into three identical records, which would treble
 // the error rate Phase 12.1 alerts on. Discarding the first two collapses that
 // back to one record at the right level.
+//
+// grpclog.SetLoggerV2 is not safe to call while gRPC is running, so it is set
+// once per process, before the first server starts.
 func redirectGRPCLog() {
-	errorW := slog.NewLogLogger(slog.Default().Handler(), slog.LevelError).Writer()
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, errorW))
+	grpcLogOnce.Do(func() {
+		errorW := slog.NewLogLogger(slog.Default().Handler(), slog.LevelError).Writer()
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, errorW))
+	})
 }
+
+var grpcLogOnce sync.Once
 
 // startGateway dials the gRPC server over loopback and builds the public
 // handler in front of it.

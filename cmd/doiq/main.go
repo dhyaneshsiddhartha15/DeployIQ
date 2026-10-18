@@ -38,13 +38,13 @@ import (
 
 // errStackUnknown maps to its own exit code so CI can distinguish "this repo
 // isn't supported" from "the tool broke" (Phase 1.3, US-3).
-var errStackUnknown = errors.New("Could not detect a supported stack in this repo") //nolint:revive,stylecheck // US-3 fixes this exact user-facing text
+var errStackUnknown = errors.New("Could not detect a supported stack in this repo") //nolint:revive,staticcheck // US-3 fixes this exact user-facing text
 
 // errNotConfirmed is returned when a write was requested but not confirmed.
 var errNotConfirmed = errors.New("nothing was written")
 
 // errImprovable is returned when -fail-over is set and the saving reaches it.
-var errImprovable = errors.New("Dockerfile can be optimized") //nolint:revive,stylecheck // user-facing
+var errImprovable = errors.New("Dockerfile can be optimized") //nolint:revive,staticcheck // user-facing
 
 // options is the parsed command line.
 type options struct {

@@ -153,7 +153,7 @@ func Public(err error) string {
 	return "internal server error"
 }
 
-// Field returns the offending field name, or "" when the error does not name one.
+// FieldOf returns the offending field name, or "" when the error does not name one.
 func FieldOf(err error) string {
 	var e *Error
 	if errors.As(err, &e) {

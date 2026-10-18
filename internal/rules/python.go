@@ -99,7 +99,7 @@ func (pythonGenerator) Generate(ctx *Context) (*Result, error) {
 	tools := c.requiredTools(ctx.Root)
 	var needed []string
 	for _, t := range tools {
-		if !(t == "bash" && osFamily == "debian") && !(t == "wget" && osFamily == "alpine") {
+		if (t != "bash" || osFamily != "debian") && (t != "wget" || osFamily != "alpine") {
 			needed = append(needed, t)
 		}
 	}

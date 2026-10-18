@@ -1,32 +1,43 @@
-# Lint configuration. Kept deliberately small: the default linter set plus the
-# few that catch the mistakes this codebase actually cares about. Generated
-# protobuf/gateway code is excluded — it is machine output, not reviewed source.
+# Lint configuration (golangci-lint v2). Kept deliberately small: the standard
+# linter set plus the few that catch the mistakes this codebase actually cares
+# about. Generated protobuf/gateway code is excluded — it is machine output,
+# not reviewed source.
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
     - misspell
     - revive
     - bodyclose
+  exclusions:
+    generated: lax
+    # v1's default exclusions: unchecked Close/Remove/Fprint and friends.
+    presets:
+      - std-error-handling
+      - common-false-positives
+    paths:
+      - third_party
+      - ".*\\.pb\\.go$"
+      - ".*\\.pb\\.gw\\.go$"
+    rules:
+      # doc.go files are package documentation only.
+      - path: doc\.go
+        linters: [revive]
+      # Test fixtures write temp files and parse forms without checking every
+      # return: a failed setup step shows up as the test's own failure, and
+      # wrapping each write in t.Fatal adds noise without adding a check.
+      - path: _test\.go
+        linters: [errcheck]
 
-issues:
-  exclude-dirs:
-    - third_party
-  exclude-files:
-    - ".*\\.pb\\.go$"
-    - ".*\\.pb\\.gw\\.go$"
-  exclude-rules:
-    # doc.go files are package documentation only.
-    - path: doc\.go
-      linters: [revive]
-    # Test fixtures write temp files and parse forms without checking every
-    # return: a failed setup step shows up as the test's own failure, and
-    # wrapping each write in t.Fatal adds noise without adding a check.
-    - path: _test\.go
-      linters: [errcheck]
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party
