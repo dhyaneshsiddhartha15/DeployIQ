@@ -22,6 +22,7 @@ function mockApi({ list = runs, me = { login: "octocat" }, fail } = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
     const u = new URL(url, "http://localhost");
     if (fail) return fail(u, opts);
+    if (u.pathname === "/api/v1/auth/providers") return jsonResponse(200, { github: true, oidc: { enabled: false } });
     if (opts.headers.Authorization !== "Bearer tok") return jsonResponse(401, { error: { code: "unauthenticated", message: "no" } });
     if (u.pathname === "/api/v1/me") return jsonResponse(200, me);
     if (u.pathname === "/api/v1/optimizations") {

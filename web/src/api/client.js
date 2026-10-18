@@ -68,7 +68,9 @@ export async function request(path, { method = "GET", body, signal } = {}) {
     throw new ApiError(0, "network", "Could not reach the DeployIQ API. Check your connection and try again.");
   }
 
-  if (res.status === 401) {
+  // Only a request that carried a session can have its session expire; a 401
+  // without one (a stale render after sign-out) must not bounce the user.
+  if (res.status === 401 && token) {
     setToken(null);
     onUnauthorized();
     throw new ApiError(401, "unauthenticated", "Your session has expired. Please sign in again.");

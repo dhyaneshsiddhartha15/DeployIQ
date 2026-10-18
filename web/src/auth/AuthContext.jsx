@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getMe, getToken, setToken as storeToken, setUnauthorizedHandler } from "../api/client.js";
 
 // Plain context, no state library (Phase 6.2): one token, one user, a handful
@@ -15,17 +15,26 @@ export function AuthProvider({ children, navigate }) {
     if (!t) setUser(null);
   }, []);
 
+  // The router applies navigations as transitions, so the token is cleared in
+  // one too: both commit together and RequireAuth never sees "signed out" on
+  // the old page (which would redirect to /login and win over ours).
   const logout = useCallback(() => {
-    setToken(null);
+    storeToken(null);
     navigate?.("/");
-  }, [navigate, setToken]);
+    startTransition(() => {
+      setTokenState(null);
+      setUser(null);
+    });
+  }, [navigate]);
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      setTokenState(null);
-      setUser(null);
       if (navigate) navigate("/login?error=session_expired");
       else window.location.assign("/login?error=session_expired");
+      startTransition(() => {
+        setTokenState(null);
+        setUser(null);
+      });
     });
   }, [navigate]);
 
