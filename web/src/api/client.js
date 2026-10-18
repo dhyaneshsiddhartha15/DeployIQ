@@ -102,6 +102,67 @@ export async function listOptimizations({ repo, limit = 500 } = {}, signal) {
   return data?.optimizations ?? [];
 }
 
-export function loginURL() {
-  return `${API_BASE}/api/v1/auth/github/login?client=web`;
+// loginURL starts a browser login through "github" or "oidc" (company SSO).
+export function loginURL(provider = "github") {
+  return `${API_BASE}/api/v1/auth/${provider}/login?client=web`;
+}
+
+// getProviders says which sign-in methods the server offers. It needs no
+// session, and a failure falls back to GitHub only.
+export async function getProviders(signal) {
+  try {
+    return await request("/api/v1/auth/providers", { signal });
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    return { github: true, oidc: { enabled: false } };
+  }
+}
+
+// --- organizations ---------------------------------------------------------
+
+const org = (slug) => `/api/v1/orgs/${encodeURIComponent(slug)}`;
+
+export async function listOrgs(signal) {
+  const data = await request("/api/v1/orgs", { signal });
+  return data?.orgs ?? [];
+}
+
+export function createOrg(slug, name) {
+  return request("/api/v1/orgs", { method: "POST", body: { slug, name } });
+}
+
+export function getOrgSummary(slug, signal) {
+  return request(`${org(slug)}/summary`, { signal });
+}
+
+export async function listOrgOptimizations(slug, { repo, limit = 500 } = {}, signal) {
+  const q = new URLSearchParams();
+  if (repo) q.set("repo", repo);
+  if (limit) q.set("limit", String(limit));
+  const data = await request(`${org(slug)}/optimizations?${q}`, { signal });
+  return data?.optimizations ?? [];
+}
+
+export function listMembers(slug, signal) {
+  return request(`${org(slug)}/members`, { signal });
+}
+
+export function inviteMember(slug, { email, login, role }) {
+  return request(`${org(slug)}/members`, { method: "POST", body: { email, login, role } });
+}
+
+export function updateMember(slug, userId, role) {
+  return request(`${org(slug)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: { role } });
+}
+
+export function removeMember(slug, userId) {
+  return request(`${org(slug)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export function deleteInvitation(slug, id) {
+  return request(`${org(slug)}/invitations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updateSettings(slug, settings) {
+  return request(`${org(slug)}/settings`, { method: "PUT", body: settings });
 }

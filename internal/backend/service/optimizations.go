@@ -31,11 +31,23 @@ var (
 // Optimizations is the business logic behind /api/v1/optimizations.
 type Optimizations struct {
 	store OptimizationStore
+
+	// orgs resolves the organisation a report is sent into and checks the
+	// caller belongs to it; users supplies the reporter's display name.
+	// Both are optional (nil disables organisation reports).
+	orgs  *Orgs
+	users UserStore
 }
 
 // NewOptimizations returns the service.
 func NewOptimizations(store OptimizationStore) *Optimizations {
 	return &Optimizations{store: store}
+}
+
+// WithOrgs enables reporting into organisations.
+func (s *Optimizations) WithOrgs(orgs *Orgs, users UserStore) *Optimizations {
+	s.orgs, s.users = orgs, users
+	return s
 }
 
 // Create validates and stores one opt-in report for the caller. Ownership comes
@@ -48,14 +60,30 @@ func (s *Optimizations) Create(ctx context.Context, r model.OptimizationReport) 
 	if err := ValidateReport(&r); err != nil {
 		return model.Optimization{}, err
 	}
-	o, err := s.store.InsertOptimization(ctx, model.Optimization{
+	rec := model.Optimization{
 		UserID:             userID,
 		RepoName:           r.RepoName,
 		DetectedStack:      r.DetectedStack,
 		OriginalEstSizeMB:  r.OriginalEstSizeMB,
 		OptimizedEstSizeMB: r.OptimizedEstSizeMB,
 		RulesApplied:       r.RulesApplied,
-	})
+	}
+	if slug := strings.TrimSpace(r.Org); slug != "" {
+		if s.orgs == nil {
+			return model.Optimization{}, apperrors.InvalidField("org", "organizations are not enabled on this server")
+		}
+		org, err := s.orgs.ResolveForReport(ctx, slug)
+		if err != nil {
+			return model.Optimization{}, err
+		}
+		rec.OrgID = org.ID
+	}
+	if s.users != nil {
+		if u, err := s.users.GetUser(ctx, userID); err == nil {
+			rec.ReportedBy = u.Display()
+		}
+	}
+	o, err := s.store.InsertOptimization(ctx, rec)
 	if err != nil {
 		return model.Optimization{}, wrapStore("store optimization", err)
 	}
@@ -73,14 +101,10 @@ func (s *Optimizations) List(ctx context.Context, repo string, limit int) ([]mod
 	if repo != "" && !validRepoName(repo) {
 		return nil, apperrors.InvalidField("repo", "must be a repository name such as owner/name")
 	}
-	switch {
-	case limit < 0:
+	if limit < 0 {
 		return nil, apperrors.InvalidField("limit", "must not be negative")
-	case limit == 0:
-		limit = DefaultListLimit
-	case limit > MaxListLimit:
-		limit = MaxListLimit
 	}
+	limit = clampLimit(limit)
 	list, err := s.store.ListOptimizations(ctx, userID, repo, limit)
 	if err != nil {
 		return nil, wrapStore("list optimizations", err)

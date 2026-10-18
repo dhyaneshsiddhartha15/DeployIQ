@@ -26,13 +26,20 @@ type Memory struct {
 	opts  []model.Optimization
 	users map[string]model.User // by id
 	now   func() time.Time
+
+	orgs        map[string]model.Organization  // by id
+	memberships map[[2]string]model.Membership // by {orgID, userID}
+	invitations map[string]model.Invitation    // by id
 }
 
 var _ service.Store = (*Memory)(nil)
 
 // NewMemory returns an empty store.
 func NewMemory() *Memory {
-	return &Memory{users: map[string]model.User{}, now: time.Now}
+	return &Memory{
+		users: map[string]model.User{}, now: time.Now,
+		orgs: map[string]model.Organization{}, memberships: map[[2]string]model.Membership{}, invitations: map[string]model.Invitation{},
+	}
 }
 
 // SetClock replaces the time source, for tests.

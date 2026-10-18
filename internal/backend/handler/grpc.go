@@ -30,6 +30,7 @@ func (h *Optimizations) CreateOptimization(ctx context.Context, req *apiv1.Creat
 		OriginalEstSizeMB:  int64(req.GetOriginalEstSizeMb()),
 		OptimizedEstSizeMB: int64(req.GetOptimizedEstSizeMb()),
 		RulesApplied:       req.GetRulesApplied(),
+		Org:                req.GetOrg(),
 	})
 	if err != nil {
 		return nil, respondErr(ctx, "create optimization", err)
@@ -65,10 +66,7 @@ func (h *Users) GetMe(ctx context.Context, _ *apiv1.Empty) (*apiv1.User, error) 
 	if err != nil {
 		return nil, respondErr(ctx, "get me", err)
 	}
-	return &apiv1.User{
-		Id: u.ID, GithubId: u.GitHubID, Login: u.Login, Email: u.Email,
-		Plan: string(u.Plan), CreatedAt: timestamppb.New(u.CreatedAt),
-	}, nil
+	return userProto(u), nil
 }
 
 func toProto(o model.Optimization) *apiv1.Optimization {
@@ -81,6 +79,7 @@ func toProto(o model.Optimization) *apiv1.Optimization {
 		RulesApplied:       nonNil(o.RulesApplied),
 		CreatedAt:          timestamppb.New(o.CreatedAt),
 		SavingsPercent:     o.SavingsPercent(),
+		ReportedBy:         o.ReportedBy,
 	}
 }
 

@@ -43,6 +43,14 @@ type Optimization struct {
 
 	// CreatedAt is when the report was accepted.
 	CreatedAt time.Time `json:"createdAt"`
+
+	// OrgID is set when the report was sent into an organisation (-org);
+	// every member can then see it. Empty for personal reports.
+	OrgID string `json:"orgId,omitempty"`
+
+	// ReportedBy is the reporter's display name at the time of the report,
+	// for the organisation view.
+	ReportedBy string `json:"reportedBy,omitempty"`
 }
 
 // SavingsPercent returns the estimated size reduction as a percentage, or 0 when
@@ -69,4 +77,8 @@ type OptimizationReport struct {
 	OriginalEstSizeMB  int64    `json:"originalEstSizeMB"`
 	OptimizedEstSizeMB int64    `json:"optimizedEstSizeMB"`
 	RulesApplied       []string `json:"rulesApplied"`
+
+	// Org is the organisation slug to report into; the caller must be a
+	// member. Empty for a personal report.
+	Org string `json:"org,omitempty"`
 }

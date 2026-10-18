@@ -43,6 +43,9 @@ func NewAuth(svc *service.Auth, publicURL, callback, dashboard string) *Auth {
 
 // Register mounts the routes on mux.
 func (h *Auth) Register(mux *http.ServeMux) {
+	if !h.svc.GitHubEnabled() {
+		return // SSO-only deployment: the GitHub routes 404
+	}
 	mux.HandleFunc("GET "+constants.APIPathPrefix+"/auth/github/login", h.login)
 	mux.HandleFunc("GET "+constants.APIPathPrefix+"/auth/github/callback", h.callbackHandler)
 }

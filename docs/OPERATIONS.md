@@ -63,6 +63,29 @@ fly releases -a deployiq-api            # find the last good image
 fly deploy -c deploy/fly.toml --image registry.fly.io/deployiq-api:<deployment-id>
 ```
 
+### Company single sign-on (optional)
+
+1. Register an OIDC "web" application with your provider (Okta, Entra ID,
+   Google Workspace, Keycloak, Auth0). Redirect URI:
+   `https://api.deployiq.dev/api/v1/auth/oidc/callback`. Grant type:
+   authorization code (PKCE is used automatically).
+2. Configure:
+
+   ```bash
+   fly secrets set -a deployiq-api DEPLOYIQ_OIDC_CLIENT_SECRET='...'
+   ```
+
+   and in `deploy/fly.toml` `[env]`: `DEPLOYIQ_OIDC_ISSUER`,
+   `DEPLOYIQ_OIDC_CLIENT_ID`, `DEPLOYIQ_OIDC_DISPLAY_NAME=Okta`, and optionally
+   `DEPLOYIQ_OIDC_ALLOWED_DOMAINS=acme.com`, `DEPLOYIQ_OIDC_ORGANIZATION=acme`,
+   `DEPLOYIQ_OIDC_ADMIN_GROUPS=platform-admins` (add `groups` to
+   `DEPLOYIQ_OIDC_SCOPES` for Okta group claims).
+3. Deploy. The sign-in page shows "Sign in with Okta"; `doiq login -sso` uses it
+   from the CLI. For an SSO-only deployment, unset the GitHub client id.
+
+If the provider is unreachable the login route answers 503 and nothing else is
+affected (Phase 12.2: wait it out).
+
 ### Monitoring and alerting (Phase 12.1)
 
 - **Logs**: structured JSON on stdout (`fly logs -a deployiq-api`). One record

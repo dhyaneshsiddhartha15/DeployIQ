@@ -388,8 +388,8 @@ func TestCustomImagesAndMirrors(t *testing.T) {
 	if img.Family() != FamilyPython || img.Variant() != VariantSlim || img.OSFamily() != "debian" {
 		t.Fatalf("custom image: %s %s %s", img.Family(), img.Variant(), img.OSFamily())
 	}
-	if maj, min := img.Version(); maj != 3 || min != 11 {
-		t.Fatalf("declared version not used: %d.%d", maj, min)
+	if maj, minor := img.Version(); maj != 3 || minor != 11 {
+		t.Fatalf("declared version not used: %d.%d", maj, minor)
 	}
 	if ParseImage("registry.acme.com/other:1").Family() != FamilyUnknown {
 		t.Fatal("undeclared image classified")

@@ -46,7 +46,17 @@ type Auth struct {
 	users  UserStore
 	github GitHubOAuth
 	now    func() time.Time
+
+	// orgs, when set, applies invitations and SSO membership at login.
+	orgs *Orgs
+
+	// oidc, when set, enables company single sign-on.
+	oidc      OIDCProvider
+	ssoPolicy SSOPolicy
 }
+
+// GitHubEnabled reports whether GitHub login is configured.
+func (a *Auth) GitHubEnabled() bool { return a.github != nil }
 
 // NewAuth returns the auth service.
 func NewAuth(signingKey string, ttl time.Duration, users UserStore, gh GitHubOAuth) *Auth {
@@ -95,6 +105,10 @@ type LoginState struct {
 	// Client is "cli" or "web".
 	Client string `json:"c"`
 
+	// Provider is "github" (the default when empty) or "oidc"; a state
+	// minted for one provider's callback is refused by the other's.
+	Provider string `json:"v,omitempty"`
+
 	// Port is the CLI's loopback port (cli only).
 	Port int `json:"p,omitempty"`
 
@@ -115,6 +129,11 @@ const stateTTL = 10 * time.Minute
 // NewLoginState validates the login request and returns the signed state plus
 // the nonce the caller must set as a cookie.
 func (a *Auth) NewLoginState(client string, port int, cliState string) (state, nonce string, err error) {
+	return a.NewLoginStateFor(ProviderGitHub, client, port, cliState)
+}
+
+// NewLoginStateFor is NewLoginState for a given provider.
+func (a *Auth) NewLoginStateFor(provider, client string, port int, cliState string) (state, nonce string, err error) {
 	switch client {
 	case "web":
 		port, cliState = 0, ""
@@ -136,7 +155,7 @@ func (a *Auth) NewLoginState(client string, port int, cliState string) (state, n
 	}
 	nonce = hex.EncodeToString(raw)
 	payload, _ := json.Marshal(LoginState{
-		Client: client, Port: port, CLIState: cliState, Nonce: nonce,
+		Client: client, Port: port, CLIState: cliState, Nonce: nonce, Provider: provider,
 		ExpiresAt: a.now().Add(stateTTL).Unix(),
 	})
 	return a.sign("o", payload), nonce, nil
@@ -144,6 +163,26 @@ func (a *Auth) NewLoginState(client string, port int, cliState string) (state, n
 
 // VerifyLoginState checks the state from the callback against the cookie nonce.
 func (a *Auth) VerifyLoginState(state, cookieNonce string) (LoginState, error) {
+	return a.VerifyLoginStateFor(ProviderGitHub, state, cookieNonce)
+}
+
+// VerifyLoginStateFor checks a state minted for provider.
+func (a *Auth) VerifyLoginStateFor(provider, state, cookieNonce string) (LoginState, error) {
+	ls, err := a.verifyLoginState(state, cookieNonce)
+	if err != nil {
+		return ls, err
+	}
+	got := ls.Provider
+	if got == "" {
+		got = ProviderGitHub
+	}
+	if got != provider {
+		return LoginState{}, apperrors.Invalid("login state is invalid; start the login again")
+	}
+	return ls, nil
+}
+
+func (a *Auth) verifyLoginState(state, cookieNonce string) (LoginState, error) {
 	payload, ok := a.verify("o", state)
 	if !ok {
 		return LoginState{}, apperrors.Invalid("login state is invalid; start the login again")
@@ -172,6 +211,9 @@ func (a *Auth) CompleteLogin(ctx context.Context, code, redirectURI string) (mod
 	if strings.TrimSpace(code) == "" {
 		return model.User{}, "", apperrors.InvalidField("code", "is required")
 	}
+	if a.github == nil {
+		return model.User{}, "", apperrors.Invalid("GitHub login is not configured")
+	}
 	gh, err := a.github.Exchange(ctx, code, redirectURI)
 	if err != nil {
 		if apperrors.KindOf(err) != apperrors.KindInternal {
@@ -191,6 +233,7 @@ func (a *Auth) CompleteLogin(ctx context.Context, code, redirectURI string) (mod
 	if err != nil {
 		return model.User{}, "", wrapStore("upsert user", err)
 	}
+	a.joinOrgs(ctx, u, "", false)
 	token, _ := a.IssueSession(u.ID)
 	return u, token, nil
 }

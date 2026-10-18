@@ -133,14 +133,19 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
-// LoginURL is the address the browser opens to start the OAuth flow for a CLI
-// waiting on loopback port with the given state.
+// LoginURL is the address the browser opens to start the GitHub OAuth flow for
+// a CLI waiting on loopback port with the given state.
 func LoginURL(baseURL string, port int, state string) string {
+	return ProviderLoginURL(baseURL, "github", port, state)
+}
+
+// ProviderLoginURL is LoginURL for "github" or "oidc" (company SSO).
+func ProviderLoginURL(baseURL, provider string, port int, state string) string {
 	q := url.Values{}
 	q.Set("client", "cli")
 	q.Set("port", strconv.Itoa(port))
 	q.Set("state", state)
-	return strings.TrimRight(baseURL, "/") + constants.APIPathPrefix + "/auth/github/login?" + q.Encode()
+	return strings.TrimRight(baseURL, "/") + constants.APIPathPrefix + "/auth/" + provider + "/login?" + q.Encode()
 }
 
 // Login runs the browser half of Phase 5.3:
@@ -153,6 +158,11 @@ func LoginURL(baseURL string, port int, state string) string {
 // state it was given. A mismatched state is rejected: it means the redirect did
 // not come from the flow this process started.
 func Login(ctx context.Context, baseURL string, open func(string) error, notify func(string)) (string, error) {
+	return LoginWith(ctx, baseURL, "github", open, notify)
+}
+
+// LoginWith is Login through the given provider ("github" or "oidc").
+func LoginWith(ctx context.Context, baseURL, provider string, open func(string) error, notify func(string)) (string, error) {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", fmt.Errorf("login: opening loopback listener: %w", err)
@@ -212,7 +222,7 @@ func Login(ctx context.Context, baseURL string, open func(string) error, notify 
 		_ = srv.Shutdown(sctx)
 	}()
 
-	u := LoginURL(baseURL, port, state)
+	u := ProviderLoginURL(baseURL, provider, port, state)
 	notify(u)
 	if open != nil {
 		if err := open(u); err != nil {

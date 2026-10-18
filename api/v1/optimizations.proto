@@ -44,6 +44,12 @@ message Optimization {
 
   // savings_percent is derived, for the dashboard's headline number.
   double savings_percent = 8 [json_name = "savingsPercent", (google.api.field_behavior) = OUTPUT_ONLY];
+
+  // org is the organisation slug the report was sent into, if any.
+  string org = 9;
+
+  // reported_by is the reporter's display name.
+  string reported_by = 10 [json_name = "reportedBy", (google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // CreateOptimizationRequest is the Phase 4.5 request body:
@@ -59,6 +65,9 @@ message CreateOptimizationRequest {
   int32 original_est_size_mb = 3 [json_name = "originalEstSizeMB", (google.api.field_behavior) = REQUIRED];
   int32 optimized_est_size_mb = 4 [json_name = "optimizedEstSizeMB", (google.api.field_behavior) = REQUIRED];
   repeated string rules_applied = 5 [json_name = "rulesApplied"];
+
+  // org reports into an organisation (its slug); the caller must be a member.
+  string org = 6;
 }
 
 message ListOptimizationsRequest {

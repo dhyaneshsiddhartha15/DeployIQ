@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Landing from "./pages/Landing.jsx";
 import { Login, LoginCallback } from "./pages/Login.jsx";
 import RepoDetail from "./pages/RepoDetail.jsx";
+import { OrgMembers, OrgOverview, OrgRepo, OrgSettings } from "./pages/Org.jsx";
+import Orgs from "./pages/Orgs.jsx";
 
 // Routes from Phase 6.1, plus the OAuth landing route.
 //
@@ -13,6 +15,9 @@ import RepoDetail from "./pages/RepoDetail.jsx";
 //   /login/callback   receives the session token
 //   /dashboard        repos analysed, most recent savings
 //   /dashboard/:repo  history for one repo (a splat: names contain "/")
+//   /orgs             your organizations; create one
+//   /orgs/:slug       team dashboard with monthly cost saving
+//   /orgs/:slug/members, /settings, /repos/*
 export function AppRoutes() {
   return (
     <Routes>
@@ -36,6 +41,11 @@ export function AppRoutes() {
             </RequireAuth>
           }
         />
+        <Route path="orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
+        <Route path="orgs/:slug" element={<RequireAuth><OrgOverview /></RequireAuth>} />
+        <Route path="orgs/:slug/members" element={<RequireAuth><OrgMembers /></RequireAuth>} />
+        <Route path="orgs/:slug/settings" element={<RequireAuth><OrgSettings /></RequireAuth>} />
+        <Route path="orgs/:slug/repos/*" element={<RequireAuth><OrgRepo /></RequireAuth>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

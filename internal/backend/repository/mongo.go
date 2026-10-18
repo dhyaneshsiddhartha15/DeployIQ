@@ -20,6 +20,9 @@ import (
 const (
 	CollOptimizations = "optimizations"
 	CollUsers         = "users"
+	CollOrganizations = "organizations"
+	CollMemberships   = "memberships"
+	CollInvitations   = "invitations"
 )
 
 // Mongo implements service.Store on MongoDB.
@@ -42,13 +45,18 @@ type optimizationDoc struct {
 	OptimizedEstSizeMB int64         `bson:"optimizedEstSizeMB"`
 	RulesApplied       []string      `bson:"rulesApplied"`
 	CreatedAt          time.Time     `bson:"createdAt"`
+	OrgID              bson.ObjectID `bson:"orgId,omitempty"`
+	ReportedBy         string        `bson:"reportedBy,omitempty"`
 }
 
 type userDoc struct {
 	ID        bson.ObjectID `bson:"_id,omitempty"`
-	GitHubID  string        `bson:"githubId"`
+	GitHubID  string        `bson:"githubId,omitempty"`
+	Provider  string        `bson:"provider,omitempty"`
+	Subject   string        `bson:"subject,omitempty"`
 	Login     string        `bson:"login,omitempty"`
 	Email     string        `bson:"email,omitempty"`
+	Name      string        `bson:"name,omitempty"`
 	Plan      string        `bson:"plan"`
 	CreatedAt time.Time     `bson:"createdAt"`
 	UpdatedAt time.Time     `bson:"updatedAt"`
@@ -93,12 +101,51 @@ func (m *Mongo) EnsureIndexes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("repository: creating optimizations indexes: %w", err)
 	}
-	_, err = m.db.Collection(CollUsers).Indexes().CreateOne(ctx, mongo.IndexModel{
-		// The OAuth login lookup; must be unique.
-		Keys: bson.D{{Key: "githubId", Value: 1}}, Options: options.Index().SetName("githubId_unique").SetUnique(true),
+	// Organisation history (Phase 13.1 team accounts). Partial: personal
+	// reports carry no orgId and need no entry.
+	_, err = m.db.Collection(CollOptimizations).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "orgId", Value: 1}, {Key: "createdAt", Value: -1}},
+		Options: options.Index().SetName("orgId_createdAt").
+			SetPartialFilterExpression(bson.D{{Key: "orgId", Value: bson.D{{Key: "$exists", Value: true}}}}),
 	})
 	if err != nil {
-		return fmt.Errorf("repository: creating users index: %w", err)
+		return fmt.Errorf("repository: creating optimizations org index: %w", err)
+	}
+
+	// The original Phase 7.2 index was unique on githubId for every
+	// document; SSO accounts have no githubId, so it becomes partial. The old
+	// index is dropped once — it would reject the second SSO user.
+	users := m.db.Collection(CollUsers).Indexes()
+	_ = users.DropOne(ctx, "githubId_unique")
+	_, err = users.CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "githubId", Value: 1}}, Options: options.Index().SetName("githubId_unique_partial").SetUnique(true).
+			SetPartialFilterExpression(bson.D{{Key: "githubId", Value: bson.D{{Key: "$exists", Value: true}}}})},
+		{Keys: bson.D{{Key: "provider", Value: 1}, {Key: "subject", Value: 1}}, Options: options.Index().SetName("provider_subject_unique").SetUnique(true).
+			SetPartialFilterExpression(bson.D{{Key: "subject", Value: bson.D{{Key: "$exists", Value: true}}}})},
+		{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetName("email")},
+		{Keys: bson.D{{Key: "login", Value: 1}}, Options: options.Index().SetName("login")},
+	})
+	if err != nil {
+		return fmt.Errorf("repository: creating users indexes: %w", err)
+	}
+
+	if _, err := m.db.Collection(CollOrganizations).Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetName("slug_unique").SetUnique(true),
+	}); err != nil {
+		return fmt.Errorf("repository: creating organizations index: %w", err)
+	}
+	if _, err := m.db.Collection(CollMemberships).Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "orgId", Value: 1}, {Key: "userId", Value: 1}}, Options: options.Index().SetName("org_user_unique").SetUnique(true)},
+		{Keys: bson.D{{Key: "userId", Value: 1}}, Options: options.Index().SetName("userId")},
+	}); err != nil {
+		return fmt.Errorf("repository: creating memberships indexes: %w", err)
+	}
+	if _, err := m.db.Collection(CollInvitations).Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "orgId", Value: 1}}, Options: options.Index().SetName("orgId")},
+		{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetName("email")},
+		{Keys: bson.D{{Key: "login", Value: 1}}, Options: options.Index().SetName("login")},
+	}); err != nil {
+		return fmt.Errorf("repository: creating invitations indexes: %w", err)
 	}
 	return nil
 }
@@ -123,6 +170,14 @@ func (m *Mongo) InsertOptimization(ctx context.Context, o model.Optimization) (m
 		OptimizedEstSizeMB: o.OptimizedEstSizeMB,
 		RulesApplied:       o.RulesApplied,
 		CreatedAt:          m.now().UTC().Truncate(time.Millisecond),
+		ReportedBy:         o.ReportedBy,
+	}
+	if o.OrgID != "" {
+		oid, err := bson.ObjectIDFromHex(o.OrgID)
+		if err != nil {
+			return model.Optimization{}, apperrors.NotFound("organization")
+		}
+		doc.OrgID = oid
 	}
 	if doc.RulesApplied == nil {
 		doc.RulesApplied = []string{}
@@ -175,7 +230,7 @@ func (m *Mongo) UpsertUserByGitHubID(ctx context.Context, u model.User) (model.U
 	}
 	update := bson.D{
 		{Key: "$set", Value: bson.D{{Key: "login", Value: u.Login}, {Key: "email", Value: u.Email}, {Key: "updatedAt", Value: now}}},
-		{Key: "$setOnInsert", Value: bson.D{{Key: "githubId", Value: u.GitHubID}, {Key: "plan", Value: plan}, {Key: "createdAt", Value: now}}},
+		{Key: "$setOnInsert", Value: bson.D{{Key: "githubId", Value: u.GitHubID}, {Key: "provider", Value: "github"}, {Key: "plan", Value: plan}, {Key: "createdAt", Value: now}}},
 	}
 	opts := options.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(options.After)
 	var d userDoc
@@ -213,6 +268,8 @@ func (d optimizationDoc) model() model.Optimization {
 		OptimizedEstSizeMB: d.OptimizedEstSizeMB,
 		RulesApplied:       d.RulesApplied,
 		CreatedAt:          d.CreatedAt,
+		ReportedBy:         d.ReportedBy,
+		OrgID:              hexOrEmpty(d.OrgID),
 	}
 }
 
@@ -220,6 +277,7 @@ func (d userDoc) model() model.User {
 	return model.User{
 		ID: d.ID.Hex(), GitHubID: d.GitHubID, Login: d.Login, Email: d.Email,
 		Plan: model.Plan(d.Plan), CreatedAt: d.CreatedAt,
+		Provider: d.Provider, Subject: d.Subject, Name: d.Name,
 	}
 }
 

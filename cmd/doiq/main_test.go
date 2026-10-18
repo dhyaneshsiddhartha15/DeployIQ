@@ -307,3 +307,18 @@ func TestScanCommand(t *testing.T) {
 		t.Fatalf("bad format: %d", r.code)
 	}
 }
+
+func TestReportName(t *testing.T) {
+	dir := t.TempDir()
+	if got := reportName("../svc", dir); got != "svc" {
+		t.Fatal(got)
+	}
+	if got := reportName("./team/api", dir); got != "team/api" {
+		t.Fatal(got)
+	}
+	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[remote \"origin\"]\n\turl = git@github.com:acme/api.git\n"), 0o644)
+	if got := reportName("api", dir); got != "acme/api" {
+		t.Fatal(got)
+	}
+}

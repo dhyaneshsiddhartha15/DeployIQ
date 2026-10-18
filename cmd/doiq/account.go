@@ -38,6 +38,7 @@ func runAccount(cmd string, args []string, e env) int {
 	fs.SetOutput(e.stderr)
 	api := fs.String("api", "", "API endpoint (default "+constants.DefaultAPIEndpoint+")")
 	noBrowser := fs.Bool("no-browser", false, "print the login URL instead of opening a browser")
+	sso := fs.Bool("sso", false, "sign in with your company identity provider (OIDC) instead of GitHub")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return constants.ExitOK
@@ -96,12 +97,16 @@ func runAccount(cmd string, args []string, e env) int {
 		if *noBrowser {
 			opener = nil
 		}
-		token, err := client.Login(ctx, endpoint, opener, func(u string) {
+		provider := "github"
+		if *sso {
+			provider = "oidc"
+		}
+		token, err := client.LoginWith(ctx, endpoint, provider, opener, func(u string) {
 			if u == "" {
 				fmt.Fprintln(e.stderr, "Could not open a browser; open the URL above manually.")
 				return
 			}
-			fmt.Fprintf(e.stderr, "Opening GitHub login in your browser. If it does not open, visit:\n  %s\n", u)
+			fmt.Fprintf(e.stderr, "Opening the login page in your browser. If it does not open, visit:\n  %s\n", u)
 		})
 		if err != nil {
 			fmt.Fprintf(e.stderr, "%s: %v\n", constants.AppName, err)
@@ -159,6 +164,7 @@ func sendReport(root string, rep *report.Report, opts *options, e env) error {
 		OriginalEstSizeMB:  int64(rep.Estimate.Before.TotalMB),
 		OptimizedEstSizeMB: int64(rep.Estimate.After.TotalMB),
 		RulesApplied:       rep.RulesApplied,
+		Org:                opts.org,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

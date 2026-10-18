@@ -119,7 +119,7 @@ func TestMongoContract(t *testing.T) {
 	}
 	unique := false
 	for _, s := range specs {
-		if s.Name == "githubId_unique" && s.Unique != nil && *s.Unique {
+		if s.Name == "githubId_unique_partial" && s.Unique != nil && *s.Unique {
 			unique = true
 		}
 	}
@@ -149,4 +149,114 @@ func TestMongoConnectFailsFast(t *testing.T) {
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("connect did not respect the timeout")
 	}
+}
+
+// orgContract checks organisations, memberships and invitations behave the
+// same in every store.
+func orgContract(t *testing.T, s service.Store) {
+	ctx := context.Background()
+	alice, _ := s.UpsertUserByGitHubID(ctx, model.User{GitHubID: "11", Login: "Alice", Email: "alice@acme.com"})
+	bob, err := s.UpsertUserBySubject(ctx, model.User{Provider: "oidc", Subject: "sub-bob", Email: "bob@acme.com", Name: "Bob"})
+	if err != nil || bob.ID == "" || bob.Provider != "oidc" {
+		t.Fatalf("sso user: %+v %v", bob, err)
+	}
+	bob2, _ := s.UpsertUserBySubject(ctx, model.User{Provider: "oidc", Subject: "sub-bob", Email: "bob@acme.com", Name: "Robert"})
+	if bob2.ID != bob.ID || bob2.Name != "Robert" {
+		t.Fatalf("sso upsert must refresh, not duplicate: %+v", bob2)
+	}
+	// A second SSO user must not collide with the first on the GitHub index.
+	carol, err := s.UpsertUserBySubject(ctx, model.User{Provider: "oidc", Subject: "sub-carol", Email: "carol@acme.com"})
+	if err != nil || carol.ID == bob.ID {
+		t.Fatalf("second sso user: %v", err)
+	}
+	if u, err := s.FindUser(ctx, "", "alice"); err != nil || u.ID != alice.ID {
+		t.Fatalf("find by login (case-insensitive): %+v %v", u, err)
+	}
+	if u, err := s.FindUser(ctx, "BOB@acme.com", ""); err != nil || u.ID != bob.ID {
+		t.Fatalf("find by email: %+v %v", u, err)
+	}
+	if _, err := s.FindUser(ctx, "nobody@x.com", ""); apperrors.KindOf(err) != apperrors.KindNotFound {
+		t.Fatal(err)
+	}
+
+	org, err := s.CreateOrg(ctx, model.Organization{Slug: "acme", Name: "Acme", Settings: model.DefaultOrgSettings()}, alice.ID)
+	if err != nil || org.ID == "" {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateOrg(ctx, model.Organization{Slug: "acme", Name: "Dup"}, bob.ID); apperrors.KindOf(err) != apperrors.KindAlreadyExists {
+		t.Fatalf("duplicate slug: %v", err)
+	}
+	if m, err := s.GetMembership(ctx, org.ID, alice.ID); err != nil || m.Role != model.RoleAdmin {
+		t.Fatalf("creator must be admin: %+v %v", m, err)
+	}
+	if _, err := s.GetMembership(ctx, org.ID, bob.ID); apperrors.KindOf(err) != apperrors.KindNotFound {
+		t.Fatal("bob is not a member yet")
+	}
+	if err := s.UpsertMembership(ctx, model.Membership{OrgID: org.ID, UserID: bob.ID, Role: model.RoleMember}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertMembership(ctx, model.Membership{OrgID: org.ID, UserID: bob.ID, Role: model.RoleAdmin}); err != nil {
+		t.Fatal(err)
+	}
+	members, _ := s.ListMembers(ctx, org.ID)
+	if len(members) != 2 || members[0].User.Display() != "Alice" || members[1].Role != model.RoleAdmin {
+		t.Fatalf("members: %+v", members)
+	}
+	if ms, _ := s.ListMemberships(ctx, bob.ID); len(ms) != 1 || ms[0].OrgID != org.ID {
+		t.Fatalf("memberships: %+v", ms)
+	}
+	if err := s.DeleteMembership(ctx, org.ID, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetOrgBySlug(ctx, "acme"); got.ID != org.ID || got.Settings.PullsPerDay != 20 {
+		t.Fatalf("get by slug: %+v", got)
+	}
+	updated, err := s.UpdateOrgSettings(ctx, org.ID, model.OrgSettings{StoragePerGBMonthUSD: 1, PullsPerDay: 5})
+	if err != nil || updated.Settings.StoragePerGBMonthUSD != 1 {
+		t.Fatalf("settings: %+v %v", updated, err)
+	}
+
+	inv, err := s.CreateInvitation(ctx, model.Invitation{OrgID: org.ID, Email: "dave@acme.com", Role: model.RoleMember, InvitedBy: alice.ID})
+	if err != nil || inv.ID == "" {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateInvitation(ctx, model.Invitation{OrgID: org.ID, Email: "dave@acme.com", Role: model.RoleAdmin}); apperrors.KindOf(err) != apperrors.KindAlreadyExists {
+		t.Fatalf("duplicate invitation: %v", err)
+	}
+	s.CreateInvitation(ctx, model.Invitation{OrgID: org.ID, Login: "Erin", Role: model.RoleAdmin})
+	if invs, _ := s.ListInvitations(ctx, org.ID); len(invs) != 2 {
+		t.Fatalf("invitations: %+v", invs)
+	}
+	claimed, err := s.ClaimInvitations(ctx, "dave@acme.com", "erin")
+	if err != nil || len(claimed) != 2 {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	if invs, _ := s.ListInvitations(ctx, org.ID); len(invs) != 0 {
+		t.Fatal("claimed invitations must be gone")
+	}
+	if err := s.DeleteInvitation(ctx, org.ID, "ffffffffffffffffffffffff"); apperrors.KindOf(err) != apperrors.KindNotFound {
+		t.Fatal(err)
+	}
+
+	s.InsertOptimization(ctx, model.Optimization{UserID: alice.ID, OrgID: org.ID, ReportedBy: "Alice", RepoName: "acme/api", DetectedStack: "go", OriginalEstSizeMB: 900, OptimizedEstSizeMB: 9})
+	s.InsertOptimization(ctx, model.Optimization{UserID: alice.ID, RepoName: "acme/private", DetectedStack: "go", OriginalEstSizeMB: 5, OptimizedEstSizeMB: 1})
+	list, err := s.ListOrgOptimizations(ctx, org.ID, "", 50)
+	if err != nil || len(list) != 1 || list[0].ReportedBy != "Alice" || list[0].OrgID != org.ID {
+		t.Fatalf("org optimizations: %+v %v", list, err)
+	}
+}
+
+func TestMemoryOrgContract(t *testing.T) { orgContract(t, NewMemory()) }
+
+func TestMongoOrgContract(t *testing.T) {
+	uri := os.Getenv("DEPLOYIQ_TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("DEPLOYIQ_TEST_MONGO_URI not set")
+	}
+	m, err := Connect(context.Background(), uri, "deployiq_orgtest_"+time.Now().Format("150405.000")[:6], 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.db.Drop(context.Background()); _ = m.Close(context.Background()) })
+	orgContract(t, m)
 }

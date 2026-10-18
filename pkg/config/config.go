@@ -45,6 +45,50 @@ type Config struct {
 	Log       LogConfig       `yaml:"log"`
 	RateLimit RateLimitConfig `yaml:"rateLimit"`
 	Alert     AlertConfig     `yaml:"alert"`
+	OIDC      OIDCConfig      `yaml:"oidc"`
+}
+
+// OIDCConfig enables company single sign-on (Okta, Microsoft Entra ID, Google
+// Workspace, Keycloak, Auth0...). Off unless Issuer is set.
+type OIDCConfig struct {
+	// Issuer is the provider's issuer URL, e.g.
+	// https://acme.okta.com/oauth2/default or
+	// https://login.microsoftonline.com/<tenant>/v2.0.
+	Issuer string `yaml:"issuer"`
+
+	// ClientID is the app registration's client id (public).
+	ClientID string `yaml:"clientId"`
+
+	// ClientSecret is secret: DEPLOYIQ_OIDC_CLIENT_SECRET only.
+	ClientSecret string `yaml:"-"`
+
+	// DisplayName labels the sign-in button ("Okta", "Microsoft").
+	DisplayName string `yaml:"displayName"`
+
+	// Scopes requested; default openid email profile (add "groups" for
+	// Okta group claims).
+	Scopes []string `yaml:"scopes"`
+
+	// GroupsClaim names the claim carrying groups. Default "groups".
+	GroupsClaim string `yaml:"groupsClaim"`
+
+	// AllowedDomains restricts sign-in to verified emails in these domains.
+	AllowedDomains []string `yaml:"allowedDomains"`
+
+	// Organization is an organisation slug every SSO user joins. Created on
+	// the first SSO login.
+	Organization string `yaml:"organization"`
+
+	// AdminGroups are groups whose members join Organization as admins.
+	AdminGroups []string `yaml:"adminGroups"`
+}
+
+// Enabled reports whether SSO is configured.
+func (o OIDCConfig) Enabled() bool { return strings.TrimSpace(o.Issuer) != "" }
+
+// GitHubEnabled reports whether GitHub login is configured.
+func (c *Config) GitHubEnabled() bool {
+	return strings.TrimSpace(c.GitHub.ClientID) != "" || strings.TrimSpace(c.GitHub.ClientSecret) != ""
 }
 
 // ServerConfig holds listener addresses.
@@ -297,6 +341,17 @@ func (c *Config) applyEnv() error {
 		c.Server.CORSOrigins = strings.Split(v, ",")
 	}
 	envString(&c.Alert.WebhookURL, "ALERT_WEBHOOK_URL") // secret: env only
+	envString(&c.OIDC.Issuer, "OIDC_ISSUER")
+	envString(&c.OIDC.ClientID, "OIDC_CLIENT_ID")
+	envString(&c.OIDC.ClientSecret, "OIDC_CLIENT_SECRET") // secret: env only
+	envString(&c.OIDC.DisplayName, "OIDC_DISPLAY_NAME")
+	envString(&c.OIDC.Organization, "OIDC_ORGANIZATION")
+	envString(&c.OIDC.GroupsClaim, "OIDC_GROUPS_CLAIM")
+	for key, dst := range map[string]*[]string{"OIDC_SCOPES": &c.OIDC.Scopes, "OIDC_ALLOWED_DOMAINS": &c.OIDC.AllowedDomains, "OIDC_ADMIN_GROUPS": &c.OIDC.AdminGroups} {
+		if v, ok := lookup(key); ok {
+			*dst = strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
+		}
+	}
 	envString(&c.Log.Level, "LOG_LEVEL")
 	envString(&c.Log.Format, "LOG_FORMAT")
 
@@ -349,8 +404,20 @@ func (c *Config) Validate() error {
 	require(c.Mongo.Database, "mongo.database")
 
 	require(c.Mongo.URI, EnvPrefix+"MONGO_URI")
-	require(c.GitHub.ClientID, "github.clientId")
-	require(c.GitHub.ClientSecret, EnvPrefix+"GITHUB_CLIENT_SECRET")
+	// At least one way to sign in; each one configured completely. GitHub
+	// alone is the default; SSO alone suits companies that allow only their
+	// own identity provider.
+	if c.GitHubEnabled() || !c.OIDC.Enabled() {
+		require(c.GitHub.ClientID, "github.clientId")
+		require(c.GitHub.ClientSecret, EnvPrefix+"GITHUB_CLIENT_SECRET")
+	}
+	if c.OIDC.Enabled() {
+		require(c.OIDC.ClientID, "oidc.clientId")
+		require(c.OIDC.ClientSecret, EnvPrefix+"OIDC_CLIENT_SECRET")
+		if !strings.HasPrefix(c.OIDC.Issuer, "https://") && !strings.HasPrefix(c.OIDC.Issuer, "http://localhost") && !strings.HasPrefix(c.OIDC.Issuer, "http://127.0.0.1") {
+			problems = append(problems, "oidc.issuer must be an https URL")
+		}
+	}
 	require(c.Auth.SessionSigningKey, EnvPrefix+"AUTH_SESSION_SIGNING_KEY")
 
 	if _, err := logger.ParseLevel(c.Log.Level); err != nil {

@@ -20,6 +20,7 @@ import (
 func registerServices(srv *grpc.Server, s services) {
 	apiv1.RegisterOptimizationsServiceServer(srv, handler.NewOptimizations(s.optimizations))
 	apiv1.RegisterUsersServiceServer(srv, handler.NewUsers(s.users))
+	apiv1.RegisterOrgsServiceServer(srv, handler.NewOrgs(s.orgs))
 }
 
 // registerGateways attaches the REST/JSON translation for each service to mux.
@@ -33,6 +34,9 @@ func registerGateways(ctx context.Context, mux *gwruntime.ServeMux, conn *grpc.C
 	}
 	if err := apiv1.RegisterUsersServiceHandler(ctx, mux, conn); err != nil {
 		return fmt.Errorf("backend: registering users gateway: %w", err)
+	}
+	if err := apiv1.RegisterOrgsServiceHandler(ctx, mux, conn); err != nil {
+		return fmt.Errorf("backend: registering orgs gateway: %w", err)
 	}
 	return nil
 }

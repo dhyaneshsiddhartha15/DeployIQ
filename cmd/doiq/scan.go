@@ -37,6 +37,7 @@ type scanOptions struct {
 	buildArgs multiFlag
 	report    bool
 	api       string
+	org       string
 
 	githubOwner     string
 	githubAPI       string
@@ -66,6 +67,7 @@ func runScan(args []string, e env) int {
 	fs.Var(&o.buildArgs, "build-arg", "KEY=VALUE for -measure builds; repeatable")
 	fs.BoolVar(&o.report, "report", false, "send each result to your dashboard (requires `doiq login`)")
 	fs.StringVar(&o.api, "api", "", "API endpoint for -report")
+	fs.StringVar(&o.org, "org", "", "with -report: the organization to report into")
 	fs.StringVar(&o.githubOwner, "github-org", "", "scan every repository of this GitHub organisation or user (shallow clones)")
 	fs.StringVar(&o.githubAPI, "github-api", "", "GitHub API base for GitHub Enterprise Server, e.g. https://ghe.acme.com/api/v3")
 	fs.StringVar(&o.tokenEnv, "token-env", "GITHUB_TOKEN", "environment variable holding the GitHub token (needed for private repos)")
@@ -181,7 +183,7 @@ func runScan(args []string, e env) int {
 	summary := scan.Summarize(entries)
 	fmt.Fprintf(e.stderr, "Done in %s.\n", time.Since(start).Round(time.Second))
 
-	var w io.Writer = e.stdout
+	w := e.stdout
 	if o.out != "" {
 		f, err := os.Create(o.out) //nolint:gosec // operator-chosen path
 		if err != nil {
@@ -248,12 +250,30 @@ func analyseProject(name, dir string, o *scanOptions, e env) scan.Entry {
 		}
 	}
 	if o.report {
-		ro := &options{repoName: name, api: o.api}
+		ro := &options{repoName: reportName(name, dir), api: o.api, org: o.org}
 		if err := sendReport(dir, rep, ro, env{stderr: io.Discard}); err != nil {
 			entry.Reason = "report failed: " + err.Error()
 		}
 	}
 	return entry
+}
+
+// reportName is the repository name sent with -report: the git origin remote
+// ("owner/repo") when the project is a checkout, so the dashboard shows the
+// same name whichever directory the scan started from; else the scan-relative
+// name, which is never allowed to climb out ("../svc" is not a repo name).
+func reportName(name, dir string) string {
+	if _, err := os.Stat(filepath.Join(dir, ".git", "config")); err == nil {
+		return repoName(dir)
+	}
+	clean := strings.TrimPrefix(filepath.ToSlash(name), "./")
+	for strings.HasPrefix(clean, "../") {
+		clean = strings.TrimPrefix(clean, "../")
+	}
+	if clean == "" || clean == ".." {
+		return filepath.Base(dir)
+	}
+	return clean
 }
 
 // isMonorepoRoot reports a project whose real projects are its children:

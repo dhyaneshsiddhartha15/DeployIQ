@@ -267,3 +267,16 @@ func TestUsersMe(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func (f *fakeStore) ListOrgOptimizations(context.Context, string, string, int) ([]model.Optimization, error) {
+	return nil, f.err
+}
+
+func (f *fakeStore) UpsertUserBySubject(ctx context.Context, u model.User) (model.User, error) {
+	u.GitHubID = "sso-" + u.Subject
+	return f.UpsertUserByGitHubID(ctx, u)
+}
+
+func (f *fakeStore) FindUser(context.Context, string, string) (model.User, error) {
+	return model.User{}, apperrors.NotFound("user")
+}

@@ -31,6 +31,17 @@ type User struct {
 	// field, which Phase 7.5 allows without a migration.
 	Login string `json:"login,omitempty"`
 
+	// Provider is how the account signs in: "github" (the default, and the
+	// only value before SSO existed) or "oidc".
+	Provider string `json:"provider,omitempty"`
+
+	// Subject is the OIDC `sub` claim, unique per provider. Empty for GitHub
+	// accounts, which are keyed by GitHubID.
+	Subject string `json:"subject,omitempty"`
+
+	// Name is a display name from the identity provider.
+	Name string `json:"name,omitempty"`
+
 	// Email comes from the GitHub profile. May be empty — a GitHub user can
 	// keep their address private.
 	Email string `json:"email,omitempty"`
@@ -58,6 +69,17 @@ type Session struct {
 
 	// ExpiresAt is when it stops being accepted.
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// Display is the best human-readable name: login, then name, then email.
+func (u User) Display() string {
+	switch {
+	case u.Login != "":
+		return u.Login
+	case u.Name != "":
+		return u.Name
+	}
+	return u.Email
 }
 
 // Expired reports whether the session is no longer valid at time now.

@@ -9,6 +9,9 @@
       "name": "OptimizationsService"
     },
     {
+      "name": "OrgsService"
+    },
+    {
       "name": "UsersService"
     }
   ],
@@ -112,9 +115,385 @@
           "OptimizationsService"
         ]
       }
+    },
+    "/api/v1/orgs": {
+      "get": {
+        "summary": "ListMyOrgs returns the organisations the caller belongs to.",
+        "operationId": "OrgsService_ListMyOrgs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListOrgsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OrgsService"
+        ]
+      },
+      "post": {
+        "summary": "CreateOrg creates an organisation; the caller becomes its admin.",
+        "operationId": "OrgsService_CreateOrg",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Org"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateOrgRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/invitations/{id}": {
+      "delete": {
+        "summary": "DeleteInvitation withdraws a pending invitation. Admins only.",
+        "operationId": "OrgsService_DeleteInvitation",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Empty"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/members": {
+      "get": {
+        "summary": "ListMembers returns members and pending invitations. Members only.",
+        "operationId": "OrgsService_ListMembers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListMembersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      },
+      "post": {
+        "summary": "InviteMember adds a user now if they have an account, else records an\ninvitation claimed at their first login. Admins only.",
+        "operationId": "OrgsService_InviteMember",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1InviteMemberResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgsServiceInviteMemberBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/members/{userId}": {
+      "delete": {
+        "summary": "RemoveMember removes a member (admins), or the caller themself (leave).",
+        "operationId": "OrgsService_RemoveMember",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Empty"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      },
+      "patch": {
+        "summary": "UpdateMember changes a member's role. Admins only; the last admin cannot\nbe demoted.",
+        "operationId": "OrgsService_UpdateMember",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Member"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgsServiceUpdateMemberBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/optimizations": {
+      "get": {
+        "summary": "ListOrgOptimizations is every report sent into the organisation.",
+        "operationId": "OrgsService_ListOrgOptimizations",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListOptimizationsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/settings": {
+      "put": {
+        "summary": "UpdateSettings changes the cost-estimate parameters. Admins only.",
+        "operationId": "OrgsService_UpdateSettings",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Org"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "settings",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1OrgSettings"
+            }
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/summary": {
+      "get": {
+        "summary": "GetOrgSummary is the organisation dashboard: per-repo latest results,\ntotals and the estimated monthly cost saving. Members only.",
+        "operationId": "OrgsService_GetOrgSummary",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1OrgSummary"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgsService"
+        ]
+      }
     }
   },
   "definitions": {
+    "OrgsServiceInviteMemberBody": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Exactly one of email or login (a GitHub username)."
+        },
+        "login": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "OrgsServiceUpdateMemberBody": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -165,6 +544,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "org": {
+          "type": "string",
+          "description": "org reports into an organisation (its slug); the caller must be a member."
         }
       },
       "description": "{\"repoName\": \"company/backend\", \"detectedStack\": \"node\",\n   \"originalEstSizeMB\": 640, \"optimizedEstSizeMB\": 118,\n   \"rulesApplied\": [\"multi-stage-build\", \"alpine-base\", \"prod-only-deps\"]}\n\nThe client never supplies id, owner or timestamp.",
@@ -176,6 +559,77 @@
         "optimizedEstSizeMB"
       ]
     },
+    "v1CreateOrgRequest": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "name"
+      ]
+    },
+    "v1Empty": {
+      "type": "object",
+      "description": "Empty is the request/response type for calls that carry no payload."
+    },
+    "v1Invitation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "login": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "v1InviteMemberResponse": {
+      "type": "object",
+      "properties": {
+        "member": {
+          "$ref": "#/definitions/v1Member",
+          "description": "member is set when the user already had an account and was added now;\ninvitation when they will join at their first login."
+        },
+        "invitation": {
+          "$ref": "#/definitions/v1Invitation"
+        }
+      }
+    },
+    "v1ListMembersResponse": {
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Member"
+          }
+        },
+        "invitations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Invitation"
+          }
+        }
+      }
+    },
     "v1ListOptimizationsResponse": {
       "type": "object",
       "properties": {
@@ -185,6 +639,29 @@
             "type": "object",
             "$ref": "#/definitions/v1Optimization"
           }
+        }
+      }
+    },
+    "v1ListOrgsResponse": {
+      "type": "object",
+      "properties": {
+        "orgs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Org"
+          }
+        }
+      }
+    },
+    "v1Member": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/definitions/v1User"
+        },
+        "role": {
+          "type": "string"
         }
       }
     },
@@ -225,9 +702,130 @@
           "format": "double",
           "description": "savings_percent is derived, for the dashboard's headline number.",
           "readOnly": true
+        },
+        "org": {
+          "type": "string",
+          "description": "org is the organisation slug the report was sent into, if any."
+        },
+        "reportedBy": {
+          "type": "string",
+          "description": "reported_by is the reporter.s display name.",
+          "readOnly": true
         }
       },
       "description": "Optimization is one recorded run. Size fields are estimates (Phase 1.5) and\nare named so. JSON names keep the exact casing of the Phase 4.5 example body."
+    },
+    "v1Org": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "readOnly": true
+        },
+        "slug": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "settings": {
+          "$ref": "#/definitions/v1OrgSettings"
+        },
+        "role": {
+          "type": "string",
+          "description": "role is the caller's role, when listing their own organisations."
+        }
+      }
+    },
+    "v1OrgSettings": {
+      "type": "object",
+      "properties": {
+        "storagePerGBMonthUSD": {
+          "type": "number",
+          "format": "double"
+        },
+        "transferPerGBUSD": {
+          "type": "number",
+          "format": "double"
+        },
+        "pullsPerDay": {
+          "type": "number",
+          "format": "double"
+        },
+        "versionsKept": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "v1OrgSummary": {
+      "type": "object",
+      "properties": {
+        "org": {
+          "$ref": "#/definitions/v1Org"
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1RepoSummary"
+          }
+        },
+        "runs": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "currentMB": {
+          "type": "number",
+          "format": "double"
+        },
+        "optimizedMB": {
+          "type": "number",
+          "format": "double"
+        },
+        "savedMB": {
+          "type": "number",
+          "format": "double"
+        },
+        "avgSavedPercent": {
+          "type": "number",
+          "format": "double"
+        },
+        "monthlySavedUSD": {
+          "type": "number",
+          "format": "double"
+        },
+        "members": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1RepoSummary": {
+      "type": "object",
+      "properties": {
+        "repoName": {
+          "type": "string"
+        },
+        "latest": {
+          "$ref": "#/definitions/v1Optimization"
+        },
+        "runs": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "reportedBy": {
+          "type": "string"
+        },
+        "monthlySavedUSD": {
+          "type": "number",
+          "format": "double"
+        }
+      }
     },
     "v1User": {
       "type": "object",
@@ -251,6 +849,13 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string",
+          "description": "provider is \"github\" or \"oidc\"."
         }
       },
       "description": "User is the dashboard account. There is no password field, by design\n(Phase 3.1: GitHub OAuth only, no password liability)."

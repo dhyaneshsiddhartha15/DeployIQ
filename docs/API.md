@@ -124,3 +124,49 @@ Session tokens are HMAC-SHA256-signed, stateless, and expire after
 | `GET /` and any non-API path | public | the dashboard (when `server.webDir` is set), with SPA fallback |
 | `GET /internal/healthz`, `/internal/version` | admin (loopback) | operator checks |
 | `GET`/`PUT /internal/log-level` | admin (loopback) | `{"level":"debug"}` takes effect immediately |
+
+## Organisations
+
+Team accounts. Two roles: `admin` (manages members, invitations and settings)
+and `member` (reads everything reported into the organisation and reports into
+it). A non-member gets `404` for an organisation, exactly as for one that does
+not exist, so membership cannot be probed. All checks are in the service layer.
+
+| Method | Route | Who | |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/orgs` | anyone | `{"slug":"acme","name":"Acme"}`; the caller becomes admin. Slug: 3–40 lowercase letters, digits, hyphens |
+| `GET` | `/api/v1/orgs` | anyone | the caller's organisations, each with `role` |
+| `GET` | `/api/v1/orgs/{slug}/summary` | member | latest result per repository, totals, `monthlySavedUSD`, reporter |
+| `GET` | `/api/v1/orgs/{slug}/optimizations?repo=&limit=` | member | every report sent into the organisation |
+| `GET` | `/api/v1/orgs/{slug}/members` | member | members and pending invitations |
+| `POST` | `/api/v1/orgs/{slug}/members` | admin | `{"email":...}` or `{"login":...}`, optional `"role"`; adds an existing account at once, else creates an invitation claimed at first sign-in |
+| `PATCH` | `/api/v1/orgs/{slug}/members/{userId}` | admin | `{"role":"admin"}`; the last admin cannot be demoted |
+| `DELETE` | `/api/v1/orgs/{slug}/members/{userId}` | admin, or the member themself | the last admin cannot leave |
+| `DELETE` | `/api/v1/orgs/{slug}/invitations/{id}` | admin | withdraw an invitation |
+| `PUT` | `/api/v1/orgs/{slug}/settings` | admin | `{"storagePerGBMonthUSD":0.1,"transferPerGBUSD":0.09,"pullsPerDay":20,"versionsKept":30}` |
+
+Reporting into an organisation: add `"org": "<slug>"` to `POST
+/api/v1/optimizations` (`doiq -report -org <slug>`). The caller must be a
+member; otherwise `400` with `field: "org"`.
+
+**Monthly saving** per repository = saved GB × `versionsKept` ×
+`storagePerGBMonthUSD` + saved GB × `pullsPerDay` × 30 × `transferPerGBUSD`.
+
+## Single sign-on (OpenID Connect)
+
+Enabled when `oidc.issuer` is configured (see `configs/default.yml`).
+
+| Route | |
+| --- | --- |
+| `GET /api/v1/auth/providers` | public: `{"github": true, "oidc": {"enabled": true, "name": "Okta"}}`; the dashboard shows the matching buttons |
+| `GET /api/v1/auth/oidc/login?client=web` (or `client=cli&port=&state=`) | redirects to the provider with `state`, `nonce` and a PKCE S256 challenge; the verifier stays in an HttpOnly cookie |
+| `GET /api/v1/auth/oidc/callback` | redeems the code, checks the ID token's issuer, audience, expiry and nonce, applies the policy, and redirects exactly like the GitHub callback |
+
+Policy: `allowedDomains` admits only **verified** emails in those domains
+(`/login?error=domain_not_allowed` otherwise); `organization` is joined by every
+SSO user (created on the first SSO login, whose user becomes its admin);
+members of `adminGroups` join it as admins. Invitations addressed to the
+user's email are claimed on every sign-in, GitHub or SSO.
+
+A deployment can be SSO-only: leave `github.clientId` empty and the GitHub
+routes are not registered.

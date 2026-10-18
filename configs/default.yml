@@ -111,3 +111,18 @@ alert:
   minRequests: 20     # quieter windows are not judged
   sustain: 5          # consecutive bad windows before firing
   cooldown: 30m
+
+# Company single sign-on (OpenID Connect): Okta, Microsoft Entra ID, Google
+# Workspace, Keycloak, Auth0. Off while issuer is empty. The client secret is
+# env-only: DEPLOYIQ_OIDC_CLIENT_SECRET. Register the redirect URI
+# <publicUrl>/api/v1/auth/oidc/callback with the provider. GitHub login keeps
+# working alongside; leave github.clientId empty for an SSO-only deployment.
+oidc:
+  issuer: ""            # e.g. https://acme.okta.com/oauth2/default
+  clientId: ""
+  displayName: ""       # sign-in button label, e.g. "Okta"
+  scopes: []            # default: openid email profile (add "groups" for Okta groups)
+  groupsClaim: "groups"
+  allowedDomains: []    # e.g. [acme.com]: only verified emails in these domains
+  organization: ""      # every SSO user joins this organization (created on first login)
+  adminGroups: []       # members of these groups join it as admins

@@ -1,11 +1,17 @@
 import { useEffect } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { getProviders } from "../api/client.js";
+import { useApi } from "../api/useApi.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import AuthButton from "../components/AuthButton.jsx";
+import { Loading } from "../components/States.jsx";
 
 const errors = {
-  access_denied: "GitHub sign-in was cancelled.",
+  access_denied: "Sign-in was cancelled.",
   github_error: "GitHub could not complete the sign-in. Please try again.",
+  sso_error: "Your identity provider could not complete the sign-in. Please try again.",
+  login_failed: "Sign-in failed. Please try again.",
+  domain_not_allowed: "Your account is not in a domain allowed to use this dashboard. Ask your administrator.",
   session_expired: "Your session has expired. Please sign in again.",
   missing_token: "The sign-in did not return a session. Please try again.",
 };
@@ -13,20 +19,33 @@ const errors = {
 export function Login() {
   const { token } = useAuth();
   const [params] = useSearchParams();
+  const providers = useApi((signal) => getProviders(signal), []);
   if (token) return <Navigate to="/dashboard" replace />;
   const err = params.get("error");
   return (
     <section className="card narrow">
       <h1>Sign in</h1>
-      <p>Your dashboard shows the optimization results you report from the CLI with <code>doiq -report</code>.</p>
+      <p>
+        Your dashboard shows the optimization results you report from the CLI with <code>doiq -report</code>.
+      </p>
       {err && (
         <p className="notice notice-error" role="alert">
           {errors[err] ?? "Sign-in failed. Please try again."}
         </p>
       )}
-      <AuthButton />
+      {providers.status === "loading" && <Loading label="Loading sign-in options" />}
+      {providers.status !== "loading" && (
+        <div className="stack">
+          {providers.data?.oidc?.enabled && (
+            <AuthButton provider="oidc" label={`Sign in with ${providers.data.oidc.name || "SSO"}`} />
+          )}
+          {(providers.data?.github ?? true) && (
+            <AuthButton className={providers.data?.oidc?.enabled ? "btn" : "btn btn-primary"} />
+          )}
+        </div>
+      )}
       <p className="muted small">
-        DeployIQ asks GitHub only for your public profile and email address. It never reads your repositories.
+        DeployIQ asks only for your profile and email address. It never reads your repositories.
       </p>
     </section>
   );

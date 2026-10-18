@@ -19,7 +19,10 @@ export default function Layout() {
           </Link>
           <nav aria-label="Main">
             {token && <NavLink to="/dashboard">Dashboard</NavLink>}
-            {user?.login && <span className="who">@{user.login}</span>}
+            {token && <NavLink to="/orgs">Organizations</NavLink>}
+            {user && (user.login || user.name || user.email) && (
+              <span className="who">{user.login ? `@${user.login}` : user.name || user.email}</span>
+            )}
             <AuthButton className="btn btn-primary btn-sm" />
           </nav>
         </div>

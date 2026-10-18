@@ -31,8 +31,19 @@ Dry run: nothing was written. Re-run with -write to save Dockerfile.optimized.
 ```
 
 **Supported stacks:** Node.js (npm, Yarn, pnpm), Go, Python (pip,
-`pyproject.toml`, Poetry). Every one is covered by a fixture whose generated
-Dockerfile is built, started and smoke-tested in CI on every commit.
+`pyproject.toml`, Poetry), Java (Maven, Gradle, Spring Boot). Every one is
+covered by fixtures whose generated Dockerfiles are built, started and
+smoke-tested in CI on every commit.
+
+**For teams and companies:**
+
+| | |
+| --- | --- |
+| [GitHub Action](docs/GITHUB_ACTION.md) | a comment on every pull request with the saving and the proposed Dockerfile; optional fail threshold |
+| `doiq scan` | one report across a folder of repos or a whole GitHub organisation: totals, worst offenders, every skip with its reason |
+| `-measure`, `-scan-vulns` | real `docker build` sizes, and a Trivy vulnerability count before vs after (e.g. 17 → 0 critical) |
+| [`.doiq.yml`](docs/CONFIG.md) | your internal base images (kept, not refused), registry mirrors, internal npm / PyPI / Go / Maven registries |
+| Dashboard | GitHub or company SSO (Okta, Entra ID, Google, Keycloak, Auth0), organisations with admin/member roles, estimated $ saved per month |
 
 ---
 
@@ -54,8 +65,18 @@ doiq path/to/repo    # analyse another directory
 doiq -diff .         # unified diff against your current Dockerfile
 doiq -write .        # write Dockerfile.optimized, after a y/N prompt
 doiq -write -yes .   # ... without prompting (CI)
-doiq -format json .  # machine-readable report on stdout
+doiq -format json .  # machine-readable report on stdout (also: -format markdown)
+doiq -measure .      # build both images with Docker and report real sizes
+doiq -scan-vulns .   # ... and count known vulnerabilities in each (Trivy)
+doiq -fail-over 30 . # exit 5 when the image could shrink by 30% or more (CI gate)
+doiq -dockerfile ops/api.Dockerfile .   # an existing Dockerfile somewhere unusual
+
+doiq scan ~/src                          # every project under a folder
+doiq scan -github-org acme -format markdown -out fleet.md   # a whole organisation
 ```
+
+`doiq` looks for your current Dockerfile at the root, then in `build/`,
+`docker/` and `deploy/`.
 
 `doiq` never modifies your `Dockerfile`. With `-write` it writes
 `Dockerfile.optimized` next to it, so you can compare and switch deliberately:
@@ -70,7 +91,8 @@ docker build -f Dockerfile.optimized .
 | 1 | error (unreadable path, failed write, ...) |
 | 2 | usage error |
 | 3 | no supported stack detected |
-| 4 | stack recognised, but the repo or Dockerfile uses something v1 refuses to guess at |
+| 4 | stack recognised, but the repo or Dockerfile uses something doiq refuses to guess at |
+| 5 | only with `-fail-over`: the image can shrink by at least the given percent |
 
 ### What it does — and refuses to do
 
@@ -87,11 +109,17 @@ is built, never how the app runs**:
 - Tools your start command or health check needs (`curl`, `bash`, ...) are
   added back to the smaller runtime image.
 
-It **fails safely** instead of guessing (exit 4) on: custom/private base
-images, heredocs, `ONBUILD`, base images that depend on a build argument with
-no default, monorepo workspaces, multi-language builds, several Go `main`
-packages with no obvious choice, and apps whose start command cannot be
-inferred.
+- An existing multi-stage Dockerfile whose runtime is already lean keeps its
+  runtime stage exactly as written; only the build stage is improved. Private
+  module setup (`ARG GIT_TOKEN`, `git config`, `GOPRIVATE`) stays in the build
+  stage and never reaches the image.
+
+It **fails safely** instead of guessing (exit 4) on: undeclared custom base
+images (declare yours in [`.doiq.yml`](docs/CONFIG.md)), heredocs, `ONBUILD`,
+base images that depend on a build argument with no default, monorepo
+workspaces and multi-module builds (scan their services instead), multi-language
+builds, WAR packaging, several Go `main` packages with no obvious choice, and
+apps whose start command cannot be inferred.
 
 Size figures are **estimates** from static tables — nothing is pulled or built
 — and are biased to under-promise. On the fixture suite the estimated saving is
@@ -103,13 +131,21 @@ The CLI is fully useful with no backend, forever. If you want history:
 
 ```bash
 doiq login           # GitHub OAuth in your browser; token stored in your user config dir
-doiq -report .       # send this run's result
+doiq login -sso      # ... or your company's identity provider
+doiq -report .       # send this run's result to your personal history
+doiq -report -org acme .        # ... or into your team's organisation
+doiq scan -report -org acme ~/src   # a whole fleet at once
 doiq whoami
 doiq logout
 ```
 
 Only the repository name, stack, the two size estimates and the rule ids are
 sent — never code, paths or the Dockerfile.
+
+Organisations have two roles. Admins invite people by email or GitHub username
+(invitations are claimed at first sign-in), manage roles, and set the prices
+behind the monthly cost estimate; members see everything reported into the
+organisation and report into it.
 
 ---
 
@@ -125,13 +161,17 @@ deployiq-optimizer/
 │   ├── dockerfile/            Dockerfile parsing, analysis and generation
 │   ├── rules/                 per-stack optimization rules
 │   ├── analyzer/              image size estimation
-│   ├── report/                terminal/JSON output and diffing
+│   ├── report/                terminal, JSON and Markdown output, diffing
+│   ├── measure/               docker build sizes and Trivy scans (opt-in)
+│   ├── orgconfig/             .doiq.yml: internal base images, mirrors
+│   ├── scan/                  fleet scans: discovery, GitHub orgs, summaries
 │   ├── client/                CLI's API client (login, -report only)
 │   └── backend/               API server: gRPC + REST gateway + admin
 │       ├── handler/           transport layer  — parse, call, respond
 │       ├── service/           business logic   — no HTTP, no MongoDB
 │       ├── repository/        storage layer    — MongoDB (+ in-memory)
-│       └── github/            GitHub OAuth client
+│       ├── github/            GitHub OAuth client
+│       └── oidc/              OpenID Connect client (company SSO)
 ├── api/
 │   ├── v1/                    protobuf contract + generated code
 │   └── swagger/OpenAPI/       generated OpenAPI bundle, embedded in the binary
@@ -214,7 +254,7 @@ Deployment, monitoring and the incident runbook are in
 | 10 Testing                | unit, API, MongoDB contract, dashboard, fixture build gate       | done |
 | 11 Deployment             | `release.yml`, `deploy.yml`, staging + production Fly config     | done |
 | 12 Operations             | admin endpoints, JSON logs, 5xx alerting, `docs/OPERATIONS.md`   | done |
-| 13 Future roadmap         | `docs/ARCHITECTURE.md` §7, debt notes in code                    | recorded |
+| 13 Future roadmap         | GitHub Action, Java, team accounts, SSO built; the rest in `docs/ARCHITECTURE.md` §5 | partly built |
 
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

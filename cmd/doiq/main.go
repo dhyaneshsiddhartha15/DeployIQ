@@ -106,6 +106,7 @@ type options struct {
 	report   bool
 	repoName string
 	api      string
+	org      string
 
 	// verbose raises the log level to debug. Logs go to stderr, keeping
 	// stdout a clean channel for the report.
@@ -151,6 +152,7 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 	fs.StringVar(&opts.dockerfile, "dockerfile", "", "existing Dockerfile, relative to the repo (default: ./Dockerfile, then build/, docker/, deploy/)")
 	fs.BoolVar(&opts.quiet, "quiet", false, "omit the generated Dockerfile from the text report")
 	fs.BoolVar(&opts.report, "report", false, "send the result to your DeployIQ dashboard (requires `"+constants.AppName+" login`)")
+	fs.StringVar(&opts.org, "org", "", "with -report: send the result into this organization (its slug) instead of your personal history")
 	fs.StringVar(&opts.repoName, "repo-name", "", "repository name to report (default: from the git origin remote, else the directory name)")
 	fs.StringVar(&opts.api, "api", "", "API endpoint for -report and login (default "+constants.DefaultAPIEndpoint+")")
 	fs.BoolVar(&opts.verbose, "verbose", false, "log debug detail to stderr")

@@ -306,9 +306,11 @@ not worth creating when it only fixes a filename.
 
 | Feature | Gated on |
 | --- | --- |
-| GitHub Action / CI integration with PR comments | real, organic adoption after launch. The groundwork exists: `-format json` and distinct exit codes |
-| Java, Ruby, PHP | demand from users of the first three stacks; each needs fixtures first (Phase 1.5) |
-| Team accounts / RBAC | real multi-user demand |
+| GitHub Action / CI integration with PR comments | **built** — `action.yml`, `docs/GITHUB_ACTION.md` |
+| Java | **built** — Maven, Gradle, Spring Boot, with fixtures |
+| Ruby, PHP, .NET | demand; each needs fixtures first (Phase 1.5) |
+| Team accounts | **built** — organisations with admin/member roles (two roles, not general RBAC, per Phase 9.3) |
+| Company SSO, fleet scans, measured sizes, vulnerability scans, internal base images | **built** — see README |
 | Private-repo / paid tier | an unprompted willingness-to-pay signal; `model.Plan` exists for it |
 | AI-assisted dependency pruning (opt-in, experimental) | a long record of zero build-breaking output |
 | Kubernetes deploy integration | this product proving trustworthy on its own |

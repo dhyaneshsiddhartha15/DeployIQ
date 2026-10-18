@@ -1,0 +1,182 @@
+// Licensed under the Apache License, Version 2.0.
+
+syntax = "proto3";
+
+package deployiq.v1;
+
+option go_package = "github.com/dhyaneshsiddhartha15/DeployIQ/api/v1";
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+import "optimizations.proto";
+import "users.proto";
+
+// OrgsService is team accounts (Phase 13.1): organisations whose members see
+// each other's results. Two roles, admin and member; authorization is
+// enforced in the service layer on every call (Phase 9.2).
+service OrgsService {
+  // CreateOrg creates an organisation; the caller becomes its admin.
+  rpc CreateOrg(CreateOrgRequest) returns (Org) {
+    option (google.api.http) = { post: "/api/v1/orgs" body: "*" };
+  }
+
+  // ListMyOrgs returns the organisations the caller belongs to.
+  rpc ListMyOrgs(Empty) returns (ListOrgsResponse) {
+    option (google.api.http) = { get: "/api/v1/orgs" };
+  }
+
+  // GetOrgSummary is the organisation dashboard: per-repo latest results,
+  // totals and the estimated monthly cost saving. Members only.
+  rpc GetOrgSummary(OrgRef) returns (OrgSummary) {
+    option (google.api.http) = { get: "/api/v1/orgs/{slug}/summary" };
+  }
+
+  // ListOrgOptimizations is every report sent into the organisation.
+  rpc ListOrgOptimizations(ListOrgOptimizationsRequest) returns (ListOptimizationsResponse) {
+    option (google.api.http) = { get: "/api/v1/orgs/{slug}/optimizations" };
+  }
+
+  // ListMembers returns members and pending invitations. Members only.
+  rpc ListMembers(OrgRef) returns (ListMembersResponse) {
+    option (google.api.http) = { get: "/api/v1/orgs/{slug}/members" };
+  }
+
+  // InviteMember adds a user now if they have an account, else records an
+  // invitation claimed at their first login. Admins only.
+  rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse) {
+    option (google.api.http) = { post: "/api/v1/orgs/{slug}/members" body: "*" };
+  }
+
+  // UpdateMember changes a member's role. Admins only; the last admin cannot
+  // be demoted.
+  rpc UpdateMember(UpdateMemberRequest) returns (Member) {
+    option (google.api.http) = { patch: "/api/v1/orgs/{slug}/members/{user_id}" body: "*" };
+  }
+
+  // RemoveMember removes a member (admins), or the caller themself (leave).
+  rpc RemoveMember(MemberRef) returns (Empty) {
+    option (google.api.http) = { delete: "/api/v1/orgs/{slug}/members/{user_id}" };
+  }
+
+  // DeleteInvitation withdraws a pending invitation. Admins only.
+  rpc DeleteInvitation(InvitationRef) returns (Empty) {
+    option (google.api.http) = { delete: "/api/v1/orgs/{slug}/invitations/{id}" };
+  }
+
+  // UpdateSettings changes the cost-estimate parameters. Admins only.
+  rpc UpdateSettings(UpdateSettingsRequest) returns (Org) {
+    option (google.api.http) = { put: "/api/v1/orgs/{slug}/settings" body: "settings" };
+  }
+}
+
+message OrgSettings {
+  double storage_per_gb_month_usd = 1 [json_name = "storagePerGBMonthUSD"];
+  double transfer_per_gb_usd = 2 [json_name = "transferPerGBUSD"];
+  double pulls_per_day = 3 [json_name = "pullsPerDay"];
+  double versions_kept = 4 [json_name = "versionsKept"];
+}
+
+message Org {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string slug = 2;
+  string name = 3;
+  google.protobuf.Timestamp created_at = 4 [json_name = "createdAt"];
+  OrgSettings settings = 5;
+  // role is the caller's role, when listing their own organisations.
+  string role = 6;
+}
+
+message CreateOrgRequest {
+  string slug = 1 [(google.api.field_behavior) = REQUIRED];
+  string name = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message OrgRef {
+  string slug = 1;
+}
+
+message ListOrgsResponse {
+  repeated Org orgs = 1;
+}
+
+message ListOrgOptimizationsRequest {
+  string slug = 1;
+  string repo = 2;
+  int32 limit = 3;
+}
+
+message RepoSummary {
+  string repo_name = 1 [json_name = "repoName"];
+  Optimization latest = 2;
+  int32 runs = 3;
+  string reported_by = 4 [json_name = "reportedBy"];
+  double monthly_saved_usd = 5 [json_name = "monthlySavedUSD"];
+}
+
+message OrgSummary {
+  Org org = 1;
+  repeated RepoSummary repos = 2;
+  int32 runs = 3;
+  double current_mb = 4 [json_name = "currentMB"];
+  double optimized_mb = 5 [json_name = "optimizedMB"];
+  double saved_mb = 6 [json_name = "savedMB"];
+  double avg_saved_percent = 7 [json_name = "avgSavedPercent"];
+  double monthly_saved_usd = 8 [json_name = "monthlySavedUSD"];
+  int32 members = 9;
+}
+
+message Member {
+  User user = 1;
+  string role = 2;
+}
+
+message Invitation {
+  string id = 1;
+  string email = 2;
+  string login = 3;
+  string role = 4;
+  google.protobuf.Timestamp created_at = 5 [json_name = "createdAt"];
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+  repeated Invitation invitations = 2;
+}
+
+message InviteMemberRequest {
+  string slug = 1;
+  // Exactly one of email or login (a GitHub username).
+  string email = 2;
+  string login = 3;
+  string role = 4;
+}
+
+message InviteMemberResponse {
+  // member is set when the user already had an account and was added now;
+  // invitation when they will join at their first login.
+  Member member = 1;
+  Invitation invitation = 2;
+}
+
+message UpdateMemberRequest {
+  string slug = 1;
+  string user_id = 2 [json_name = "userId"];
+  string role = 3;
+}
+
+message MemberRef {
+  string slug = 1;
+  string user_id = 2 [json_name = "userId"];
+}
+
+message InvitationRef {
+  string slug = 1;
+  string id = 2;
+}
+
+message UpdateSettingsRequest {
+  string slug = 1;
+  OrgSettings settings = 2;
+}

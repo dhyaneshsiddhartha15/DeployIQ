@@ -39,6 +39,7 @@ import (
 	"github.com/dhyaneshsiddhartha15/DeployIQ/api/swagger"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/github"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/handler"
+	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/oidc"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/repository"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/internal/backend/service"
 	"github.com/dhyaneshsiddhartha15/DeployIQ/pkg/config"
@@ -73,6 +74,7 @@ type Server struct {
 type services struct {
 	optimizations *service.Optimizations
 	users         *service.Users
+	orgs          *service.Orgs
 }
 
 // Option customises New, for tests and alternative wiring.
@@ -81,6 +83,7 @@ type Option func(*options)
 type options struct {
 	store  service.Store
 	github service.GitHubOAuth
+	oidc   service.OIDCProvider
 }
 
 // WithStore uses s instead of connecting to the configured database.
@@ -88,6 +91,9 @@ func WithStore(s service.Store) Option { return func(o *options) { o.store = s }
 
 // WithGitHub uses gh instead of the real GitHub OAuth client.
 func WithGitHub(gh service.GitHubOAuth) Option { return func(o *options) { o.github = gh } }
+
+// WithOIDC uses p instead of the real OpenID Connect client.
+func WithOIDC(p service.OIDCProvider) Option { return func(o *options) { o.oidc = p } }
 
 // New builds the server from cfg. It connects to the store (failing fast on a
 // bad URI, Phase 5.6) but binds no listener — that is Start's job.
@@ -107,19 +113,31 @@ func New(cfg *config.Config, opts ...Option) (*Server, error) {
 			return nil, err
 		}
 	}
-	gh := o.github
-	if gh == nil {
+	// A nil interface, not a typed nil, when GitHub is not configured.
+	var gh service.GitHubOAuth = o.github
+	if gh == nil && cfg.GitHubEnabled() {
 		gh = github.New(cfg.GitHub.ClientID, cfg.GitHub.ClientSecret, cfg.GitHub.AuthURL, cfg.GitHub.TokenURL, cfg.GitHub.APIURL)
 	}
+	idp := o.oidc
+	if idp == nil && cfg.OIDC.Enabled() {
+		idp = oidc.New(cfg.OIDC.Issuer, cfg.OIDC.ClientID, cfg.OIDC.ClientSecret, cfg.OIDC.Scopes, cfg.OIDC.GroupsClaim)
+	}
+	orgs := service.NewOrgs(store, store, store)
 
 	s := &Server{
 		cfg:   cfg,
 		store: store,
-		auth:  service.NewAuth(cfg.Auth.SessionSigningKey, cfg.Auth.SessionTTL, store, gh),
+		auth:  service.NewAuth(cfg.Auth.SessionSigningKey, cfg.Auth.SessionTTL, store, gh).WithOrgs(orgs),
 		svcs: services{
-			optimizations: service.NewOptimizations(store),
+			optimizations: service.NewOptimizations(store).WithOrgs(orgs, store),
 			users:         service.NewUsers(store),
+			orgs:          orgs,
 		},
+	}
+	if idp != nil {
+		s.auth.WithOIDC(idp, service.SSOPolicy{
+			AllowedDomains: cfg.OIDC.AllowedDomains, AutoOrg: cfg.OIDC.Organization, AdminGroups: cfg.OIDC.AdminGroups,
+		})
 	}
 	if cfg.RateLimit.Enabled {
 		s.limiter = newRateLimiter(cfg.RateLimit, cfg.Server.TrustProxyHeaders)
@@ -135,7 +153,7 @@ func New(cfg *config.Config, opts ...Option) (*Server, error) {
 		grpc.ChainUnaryInterceptor(
 			middleware.UnaryRecovery,
 			middleware.UnaryLogging,
-			authInterceptor(s.auth),
+			authInterceptor(s.auth, store),
 		),
 		grpc.ChainStreamInterceptor(
 			middleware.StreamRecovery,
@@ -302,7 +320,9 @@ func (s *Server) startGateway() error {
 	}
 
 	mux := http.NewServeMux()
-	handler.NewAuth(s.auth, s.cfg.Server.PublicURL, s.cfg.GitHub.CallbackURL, s.cfg.Server.DashboardURL).Register(mux)
+	authH := handler.NewAuth(s.auth, s.cfg.Server.PublicURL, s.cfg.GitHub.CallbackURL, s.cfg.Server.DashboardURL)
+	authH.Register(mux)
+	authH.RegisterSSO(mux, handler.SSOName(s.cfg.OIDC.DisplayName))
 	mux.Handle(constants.APIPathPrefix+"/", gwmux)
 
 	// Public liveness for the hosting platform's health check, which
