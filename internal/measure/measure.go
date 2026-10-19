@@ -135,19 +135,33 @@ func (d *Docker) Scan(ctx context.Context, image string) (report.VulnCounts, str
 	var out string
 	var err error
 	scanner := "trivy"
-	if bin, lerr := exec.LookPath("trivy"); lerr == nil {
-		out, err = runCmd(sctx, bin, trivyArgs...)
-	} else {
+	scan := func() (string, error) {
+		if bin, lerr := exec.LookPath("trivy"); lerr == nil {
+			return runCmd(sctx, bin, trivyArgs...)
+		}
 		scanner = TrivyImage
 		args := append([]string{"run", "--rm",
 			"-v", "/var/run/docker.sock:/var/run/docker.sock",
 			// A named volume keeps the vulnerability database between runs.
 			"-v", "doiq-trivy-cache:/root/.cache/",
 			TrivyImage}, trivyArgs...)
-		out, err = d.run(sctx, args...)
+		return d.run(sctx, args...)
+	}
+	// One retry: the first scan downloads the vulnerability databases, and a
+	// transient registry or network error there is common.
+	for attempt := 0; attempt < 2; attempt++ {
+		if out, err = scan(); err == nil || sctx.Err() != nil {
+			break
+		}
 	}
 	if err != nil {
-		return report.VulnCounts{}, scanner, fmt.Errorf("vulnerability scan of %s failed:\n%s", image, tail(out, 15))
+		// --quiet hides Trivy's own logging, so the output can be empty; the
+		// exit error at least says how it ended.
+		detail := tail(out, 15)
+		if strings.TrimSpace(detail) == "" {
+			detail = "(no output from the scanner)"
+		}
+		return report.VulnCounts{}, scanner, fmt.Errorf("vulnerability scan of %s failed (%v):\n%s", image, err, detail)
 	}
 	counts, perr := ParseTrivy([]byte(extractJSON(out)))
 	return counts, scanner, perr
